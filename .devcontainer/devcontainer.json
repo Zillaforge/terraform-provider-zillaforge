@@ -1,0 +1,85 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
+// https://github.com/microsoft/vscode-dev-containers/tree/v0.205.2/containers/alpine
+{
+	"name": "golang",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"args": {
+			// go version and arch
+			"GO_VER": "1.22.4",
+			"GO_ARCH": "alpine",
+			// install kubectl version
+			"INSTALL_KUBECTL": "false",
+			"KUBECTL_VER": "1.29.1",
+			// install kubebuilder version
+			"INSTALL_KUBEBUILDER": "false",
+			"KUBEBUILDER_VER": "3.10.0",
+			"INSTALL_TERRAFORM": "true",
+			"TERRAFORM_VER": "1.14.0",
+			// install runtime for mcp
+			"INSTALL_DOCKER_CLI": "false",
+			"INSTALL_NODE": "false",
+			"INSTALL_PYTHON": "false",
+		}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"golang.Go",
+				"GitHub.copilot",
+				"isudox.vscode-jetbrains-keybindings",
+				"Arjun.swagger-viewer",
+				"humao.rest-client",
+				"pjmiravalle.terraform-advanced-syntax-highlighting"
+			],
+			"settings": {
+				"terminal.integrated.defaultProfile.linux": "zsh",
+				"terminal.integrated.profiles.linux": {
+					"zsh": {
+						"path": "/bin/zsh"
+					}
+				},
+				"launch": {
+					"configurations": []
+				},
+				"mcp": {
+					// MCP server configurations example
+					"servers": {
+						// if you want to run MCP server in Python, python3 and uv are required.
+						// set INSTALL_PYTHON to true in devcontainer.json
+						// "timezone-uvx": {
+						// 	"command": "uvx",
+						// 	"args": [
+						// 		"mcp-server-time"
+						// 	]
+						// },
+						// if you want to run MCP server in Node.js, node.js and npm are required.
+						// set INSTALL_NODE to true in devcontainer.json
+						// "timezone-npx": {
+						// 	"command": "npx",
+						// 	"args": [
+						// 		"-y",
+						// 		"@cicatriz/timezone-toolkit"
+						// 	]
+						// }
+					}
+				}
+			}
+		}
+	},
+	"mounts": [
+		{
+			"source": "vscocde-golang-devcontainer",
+			"target": "/go",
+			"type": "volume"
+		},
+	],
+	// "runArgs": [
+    // 	"--network=hashicups-network",
+    // ],
+	"initializeCommand": "docker volume create  vscocde-golang-devcontainer",
+	// run after the container starts (or is attached) — create a symlink from /root/.terraformrc
+	// to the workspace .terraformrc, if it exists
+	// "postStartCommand": "if [ -f \"${containerWorkspaceFolder}/.terraformrc\" ]; then ln -sf \"${containerWorkspaceFolder}/.terraformrc\" /root/.terraformrc; fi"
+	"postStartCommand": "ln -sf \"${containerWorkspaceFolder}/.terraformrc\" /root/.terraformrc;"
+}
