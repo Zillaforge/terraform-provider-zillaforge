@@ -23,7 +23,7 @@ FROM golang:${GO_VER}-${GO_ARCH}
 
 ARG GO_ARCH
 RUN if [ "${GO_ARCH}" == "alpine" ]; then \
-        apk add zsh-vcs make libc6-compat git; \
+        apk add zsh-vcs make libc6-compat git bash; \
     fi
 
 # Install Golang extension package tools
@@ -126,10 +126,9 @@ RUN if [ "${INSTALL_KUBEBUILDER}" == "true" ]; then \
 ARG INSTALL_TERRAFORM
 ARG TERRAFORM_VER
 RUN if [ "${INSTALL_TERRAFORM}" == "true" ]; then \
-        export ARCH=$(case $(uname -m) in x86_64) echo -n amd64 ;; aarch64) echo -n arm64 ;; *) echo -n $(uname -m) ;; esac) && \
-        export OS=$(uname | awk '{print tolower($0)}') && \
-        curl -LO https://releases.hashicorp.com/terraform/${TERRAFORM_VER}/terraform_${TERRAFORM_VER}_${OS}_${ARCH}.zip && \
-        unzip terraform_${TERRAFORM_VER}_${OS}_${ARCH}.zip && \
-        mv terraform /usr/local/bin/terraform && \
-        rm terraform_${TERRAFORM_VER}_${OS}_${ARCH}.zip ;\
+        git clone --depth=1 https://github.com/tfutils/tfenv.git ~/.tfenv && \
+        ln -s ~/.tfenv/bin/* /usr/local/bin && \
+        tfenv install ${TERRAFORM_VER} && \
+        tfenv use ${TERRAFORM_VER} && \
+        terraform -install-autocomplete ;\        
     fi
