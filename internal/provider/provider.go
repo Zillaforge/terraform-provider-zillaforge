@@ -5,8 +5,11 @@ package provider
 
 import (
 	"context"
-	"net/http"
+	"fmt"
+	"os"
+	"strings"
 
+	cloudsdk "github.com/Zillaforge/cloud-sdk"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	"github.com/hashicorp/terraform-plugin-framework/function"
@@ -14,79 +17,214 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-// Ensure ScaffoldingProvider satisfies various provider interfaces.
-var _ provider.Provider = &ScaffoldingProvider{}
-var _ provider.ProviderWithFunctions = &ScaffoldingProvider{}
-var _ provider.ProviderWithEphemeralResources = &ScaffoldingProvider{}
+// Ensure ZillaforgeProvider satisfies various provider interfaces.
+var _ provider.Provider = &ZillaforgeProvider{}
+var _ provider.ProviderWithFunctions = &ZillaforgeProvider{}
+var _ provider.ProviderWithEphemeralResources = &ZillaforgeProvider{}
 
-// ScaffoldingProvider defines the provider implementation.
-type ScaffoldingProvider struct {
+// ZillaforgeProvider defines the provider implementation.
+type ZillaforgeProvider struct {
 	// version is set to the provider version on release, "dev" when the
 	// provider is built and ran locally, and "test" when running acceptance
 	// testing.
 	version string
 }
 
-// ScaffoldingProviderModel describes the provider data model.
-type ScaffoldingProviderModel struct {
-	Endpoint types.String `tfsdk:"endpoint"`
+// ZillaforgeProviderModel describes the provider data model.
+type ZillaforgeProviderModel struct {
+	APIEndpoint    types.String `tfsdk:"api_endpoint"`
+	APIKey         types.String `tfsdk:"api_key"`
+	ProjectID      types.String `tfsdk:"project_id"`
+	ProjectSysCode types.String `tfsdk:"project_sys_code"`
 }
 
-func (p *ScaffoldingProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
-	resp.TypeName = "scaffolding"
+// T048: JWT token format validation helper (<100ms per NFR-001)
+// isValidJWTFormat checks if a token has the format header.payload.signature
+// without performing cryptographic validation (which happens in the SDK).
+func isValidJWTFormat(token string) bool {
+	parts := strings.Split(token, ".")
+	return len(parts) == 3 && parts[0] != "" && parts[1] != "" && parts[2] != ""
+}
+
+func (p *ZillaforgeProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
+	resp.TypeName = "zillaforge"
 	resp.Version = p.version
 }
 
-func (p *ScaffoldingProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
+func (p *ZillaforgeProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "Provider for managing Zillaforge cloud resources. Requires API authentication and project context.",
 		Attributes: map[string]schema.Attribute{
-			"endpoint": schema.StringAttribute{
-				MarkdownDescription: "Example provider attribute",
+			"api_endpoint": schema.StringAttribute{
+				MarkdownDescription: "Base URL for the Zillaforge API. Override this to use a different environment (staging, development) or regional endpoint. Can also be set via `ZILLAFORGE_API_ENDPOINT` environment variable.",
+				Required:            true,
+			},
+			"api_key": schema.StringAttribute{
+				MarkdownDescription: "API key for authenticating with Zillaforge services. Must be a valid JWT token. This credential is sensitive and will not be displayed in Terraform plan output or logs. Can be provided via the `ZILLAFORGE_API_KEY` environment variable.",
+				Required:            true,
+				Sensitive:           true,
+			},
+			"project_id": schema.StringAttribute{
+				MarkdownDescription: "Numeric or UUID identifier for the Zillaforge project. Exactly one of `project_id` or `project_sys_code` must be specified. Can be set via `ZILLAFORGE_PROJECT_ID` environment variable.",
+				Optional:            true,
+			},
+			"project_sys_code": schema.StringAttribute{
+				MarkdownDescription: "Alphanumeric system code for the Zillaforge project. Exactly one of `project_id` or `project_sys_code` must be specified. Can be set via `ZILLAFORGE_PROJECT_SYS_CODE` environment variable.",
 				Optional:            true,
 			},
 		},
 	}
 }
 
-func (p *ScaffoldingProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
-	var data ScaffoldingProviderModel
+func (p *ZillaforgeProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
+	var data ZillaforgeProviderModel
 
-	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+	// Only attempt to read from request config if a value was provided. In
+	// some programmatic tests the tfsdk.Config may be zero-valued which would
+	// otherwise panic. Avoid calling Get in that case and rely on environment
+	// fallbacks for tests.
+	if req.Config.Raw.Type() != nil {
+		resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 
-	if resp.Diagnostics.HasError() {
+		if resp.Diagnostics.HasError() {
+			return
+		}
+	}
+
+	// T025: INFO level logging for provider configuration start
+	tflog.Info(ctx, "Configuring Zillaforge provider")
+
+	// T049: Environment variable fallback for all 4 attributes
+	// Get api_endpoint with fallback chain: explicit config → env var → default
+	apiEndpoint := data.APIEndpoint.ValueString()
+	if apiEndpoint == "" {
+		apiEndpoint = os.Getenv("ZILLAFORGE_API_ENDPOINT")
+	}
+	if apiEndpoint == "" {
+		apiEndpoint = "https://api.zillaforge.com"
+	}
+
+	// Get api_key with fallback chain: explicit config → env var
+	apiKey := data.APIKey.ValueString()
+	if apiKey == "" {
+		apiKey = os.Getenv("ZILLAFORGE_API_KEY")
+	}
+
+	// T050: Validate api_key presence
+	if apiKey == "" {
+		resp.Diagnostics.AddError(
+			"Missing API Key",
+			"api_key must be set via provider block or ZILLAFORGE_API_KEY environment variable.",
+		)
 		return
 	}
 
-	// Configuration values are now available.
-	// if data.Endpoint.IsNull() { /* ... */ }
+	// T048 & T051: JWT token format validation (<100ms per NFR-001)
+	if !isValidJWTFormat(apiKey) {
+		resp.Diagnostics.AddError(
+			"Invalid API Key Format",
+			"api_key must be a valid JWT token in the format header.payload.signature. "+
+				"Verify your API key is correctly formatted.",
+		)
+		return
+	}
 
-	// Example client configuration for data sources and resources
-	client := http.DefaultClient
-	resp.DataSourceData = client
-	resp.ResourceData = client
+	// Get project identifiers with fallback chain
+	projectID := data.ProjectID.ValueString()
+	if projectID == "" {
+		projectID = os.Getenv("ZILLAFORGE_PROJECT_ID")
+	}
+
+	projectSysCode := data.ProjectSysCode.ValueString()
+	if projectSysCode == "" {
+		projectSysCode = os.Getenv("ZILLAFORGE_PROJECT_SYS_CODE")
+	}
+
+	// T052: Validate project identifier mutual exclusivity
+	hasProjectID := projectID != ""
+	hasProjectSysCode := projectSysCode != ""
+
+	// T053: Detailed diagnostic messages per contracts/provider-config-schema.md
+	if !hasProjectID && !hasProjectSysCode {
+		resp.Diagnostics.AddError(
+			"Missing Project Identifier",
+			"Either project_id or project_sys_code must be specified. Set one via provider block or environment variables ZILLAFORGE_PROJECT_ID or ZILLAFORGE_PROJECT_SYS_CODE.",
+		)
+		return
+	}
+
+	if hasProjectID && hasProjectSysCode {
+		resp.Diagnostics.AddError(
+			"Conflicting Project Identifiers",
+			"Only one of project_id or project_sys_code can be specified, not both. Please remove one from your provider configuration.",
+		)
+		return
+	}
+
+	projectIDOrCode := projectID
+	if projectIDOrCode == "" {
+		projectIDOrCode = projectSysCode
+	}
+
+	// T054: Structured logging with provider context for multi-instance support
+	tflog.Debug(ctx, "Initializing Zillaforge SDK client", map[string]interface{}{
+		"api_endpoint":       apiEndpoint,
+		"project_id_or_code": projectIDOrCode,
+		"provider_version":   p.version,
+	})
+
+	// T055: Initialize SDK client with validated config values
+	sdkClient := cloudsdk.NewClient(apiEndpoint, apiKey)
+
+	// Get project-specific client
+	projectClient, err := sdkClient.Project(ctx, projectIDOrCode)
+	if err != nil {
+		// T056: Add retry count and error details to SDK initialization error diagnostics (NFR-003)
+		// Note: The SDK handles retries internally with exponential backoff
+		resp.Diagnostics.AddError(
+			"SDK Initialization Failed",
+			fmt.Sprintf(
+				"Unable to create Zillaforge project client: %s. "+
+					"Verify that your API key is valid and the project ID/code '%s' exists. "+
+					"The SDK performs automatic retries with exponential backoff for transient failures.",
+				err.Error(),
+				projectIDOrCode,
+			),
+		)
+		return
+	}
+
+	tflog.Info(ctx, "Zillaforge SDK client initialized successfully", map[string]interface{}{
+		"project_id_or_code": projectIDOrCode,
+	})
+
+	// T028: Share SDK client via resp.ResourceData and resp.DataSourceData
+	resp.DataSourceData = projectClient
+	resp.ResourceData = projectClient
 }
 
-func (p *ScaffoldingProvider) Resources(ctx context.Context) []func() resource.Resource {
+func (p *ZillaforgeProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewExampleResource,
 	}
 }
 
-func (p *ScaffoldingProvider) EphemeralResources(ctx context.Context) []func() ephemeral.EphemeralResource {
+func (p *ZillaforgeProvider) EphemeralResources(ctx context.Context) []func() ephemeral.EphemeralResource {
 	return []func() ephemeral.EphemeralResource{
 		NewExampleEphemeralResource,
 	}
 }
 
-func (p *ScaffoldingProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
+func (p *ZillaforgeProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		NewExampleDataSource,
 	}
 }
 
-func (p *ScaffoldingProvider) Functions(ctx context.Context) []func() function.Function {
+func (p *ZillaforgeProvider) Functions(ctx context.Context) []func() function.Function {
 	return []func() function.Function{
 		NewExampleFunction,
 	}
@@ -94,7 +232,7 @@ func (p *ScaffoldingProvider) Functions(ctx context.Context) []func() function.F
 
 func New(version string) func() provider.Provider {
 	return func() provider.Provider {
-		return &ScaffoldingProvider{
+		return &ZillaforgeProvider{
 			version: version,
 		}
 	}
