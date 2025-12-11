@@ -10,6 +10,10 @@ import (
 	"strings"
 
 	cloudsdk "github.com/Zillaforge/cloud-sdk"
+	scaffolding_ephemeral "github.com/Zillaforge/terraform-provider-zillaforge/internal/scaffolding/ephemeral"
+	scaffolding_function "github.com/Zillaforge/terraform-provider-zillaforge/internal/scaffolding/function"
+	scaffolding_resource "github.com/Zillaforge/terraform-provider-zillaforge/internal/scaffolding/resource"
+	vps_data "github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/data"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	"github.com/hashicorp/terraform-plugin-framework/function"
@@ -208,26 +212,26 @@ func (p *ZillaforgeProvider) Configure(ctx context.Context, req provider.Configu
 
 func (p *ZillaforgeProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		NewExampleResource,
+		scaffolding_resource.NewExampleResource,
 	}
 }
 
 func (p *ZillaforgeProvider) EphemeralResources(ctx context.Context) []func() ephemeral.EphemeralResource {
 	return []func() ephemeral.EphemeralResource{
-		NewExampleEphemeralResource,
+		scaffolding_ephemeral.NewExampleEphemeralResource,
 	}
 }
 
 func (p *ZillaforgeProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
-		NewFlavorDataSource,
-		NewNetworkDataSource,
+		vps_data.NewFlavorDataSource,
+		vps_data.NewNetworkDataSource,
 	}
 }
 
 func (p *ZillaforgeProvider) Functions(ctx context.Context) []func() function.Function {
 	return []func() function.Function{
-		NewExampleFunction,
+		scaffolding_function.NewExampleFunction,
 	}
 }
 
