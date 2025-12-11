@@ -4,7 +4,7 @@ go 1.22.4
 
 require (
 	github.com/Zillaforge/cloud-sdk v0.0.0-20251209081935-79e26e215136
-	github.com/golang-jwt/jwt/v5 v5.0.0
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/hashicorp/terraform-plugin-framework v1.14.1
 	github.com/hashicorp/terraform-plugin-go v0.26.0
 	github.com/hashicorp/terraform-plugin-log v0.9.0
