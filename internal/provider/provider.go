@@ -220,7 +220,8 @@ func (p *ZillaforgeProvider) EphemeralResources(ctx context.Context) []func() ep
 
 func (p *ZillaforgeProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
-		NewExampleDataSource,
+		NewFlavorDataSource,
+		NewNetworkDataSource,
 	}
 }
 
