@@ -10,25 +10,11 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	frameworkProvider "github.com/hashicorp/terraform-plugin-framework/provider"
-	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
-	"github.com/hashicorp/terraform-plugin-testing/echoprovider"
+	// Provider testing helpers are available in internal/provider/testing.go.
 )
 
-var testAccProtoV6ProviderFactories = TestAccProtoV6ProviderFactories
-
-// testAccProtoV6ProviderFactoriesWithEcho includes the echo provider alongside the scaffolding provider.
-// It allows for testing assertions on data returned by an ephemeral resource during Open.
-// The echoprovider is used to arrange tests by echoing ephemeral data into the Terraform state.
-// This lets the data be referenced in test assertions with state checks.
-var testAccProtoV6ProviderFactoriesWithEcho = map[string]func() (tfprotov6.ProviderServer, error){
-	"zillaforge": providerserver.NewProtocol6WithError(New("test")()),
-	"echo":       echoprovider.NewProviderServer(),
-}
-
-func testAccPreCheck(t *testing.T) {
-	TestAccPreCheck(t)
-}
+// Note: use provider.TestAccProtoV6ProviderFactories and provider.TestAccProtoV6ProviderFactoriesWithEcho
+// from internal/provider/testing.go when writing tests requiring provider factories.
 
 // generateTestJWT creates a signed JWT token for use in tests.
 // It uses HS256 signing with the provided secret (or "test-secret" if empty)
@@ -88,7 +74,7 @@ func TestZillaforgeProvider_Configure_InvalidCredentials(t *testing.T) {
 	t.Skip("Test will pass after SDK integration (T022-T028)")
 }
 
-// T039: Test both project identifiers provided (should fail)
+// T039: Test both project identifiers provided (should fail).
 func TestZillaforgeProvider_Schema_BothProjectIdentifiers(t *testing.T) {
 	ctx := context.Background()
 	prov := New("test")()
@@ -120,7 +106,7 @@ func TestZillaforgeProvider_Schema_BothProjectIdentifiers(t *testing.T) {
 	}
 }
 
-// T040: Test neither project identifier provided (should fail)
+// T040: Test neither project identifier provided (should fail).
 func TestZillaforgeProvider_Schema_NeitherProjectIdentifier(t *testing.T) {
 	ctx := context.Background()
 	prov := New("test")()
@@ -151,7 +137,7 @@ func TestZillaforgeProvider_Schema_NeitherProjectIdentifier(t *testing.T) {
 	}
 }
 
-// T041: Test valid configuration with project_id (should succeed)
+// T041: Test valid configuration with project_id (should succeed).
 func TestZillaforgeProvider_Schema_ValidWithProjectID(t *testing.T) {
 	ctx := context.Background()
 	prov := New("test")()
@@ -179,7 +165,7 @@ func TestZillaforgeProvider_Schema_ValidWithProjectID(t *testing.T) {
 	}
 }
 
-// T042: Test valid configuration with project_sys_code (should succeed)
+// T042: Test valid configuration with project_sys_code (should succeed).
 func TestZillaforgeProvider_Schema_ValidWithProjectSysCode(t *testing.T) {
 	ctx := context.Background()
 	prov := New("test")()
@@ -207,7 +193,7 @@ func TestZillaforgeProvider_Schema_ValidWithProjectSysCode(t *testing.T) {
 	}
 }
 
-// T043: Test invalid JWT format (should fail)
+// T043: Test invalid JWT format (should fail).
 func TestZillaforgeProvider_Schema_InvalidJWTFormat(t *testing.T) {
 	ctx := context.Background()
 	prov := New("test")()
@@ -239,7 +225,7 @@ func TestZillaforgeProvider_Schema_InvalidJWTFormat(t *testing.T) {
 	}
 }
 
-// T044: Test multiple provider instances with aliases
+// T044: Test multiple provider instances with aliases.
 func TestZillaforgeProvider_MultiInstance_Aliases(t *testing.T) {
 	// This test verifies that multiple provider instances can coexist
 	// Each instance should have independent SDK clients

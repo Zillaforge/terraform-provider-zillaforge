@@ -10,7 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
-// T006: Test basic flavors query without filters
+// T006: Test basic flavors query without filters.
 func TestAccFlavorDataSource_basic(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { provider.TestAccPreCheck(t) },
@@ -33,7 +33,7 @@ const testAccFlavorDataSourceConfig_all = `
 data "zillaforge_flavors" "test" {}
 `
 
-// T007: Test name filter with exact match
+// T007: Test name filter with exact match.
 func TestAccFlavorDataSource_nameFilter(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { provider.TestAccPreCheck(t) },
@@ -58,7 +58,7 @@ data "zillaforge_flavors" "test" {
 }
 `
 
-// T008: Test vcpus filter (minimum)
+// T008: Test vcpus filter (minimum).
 func TestAccFlavorDataSource_vcpusFilter(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { provider.TestAccPreCheck(t) },
@@ -83,7 +83,7 @@ data "zillaforge_flavors" "test" {
 }
 `
 
-// T009: Test memory filter (minimum GB)
+// T009: Test memory filter (minimum GB).
 func TestAccFlavorDataSource_memoryFilter(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { provider.TestAccPreCheck(t) },
@@ -108,7 +108,7 @@ data "zillaforge_flavors" "test" {
 }
 `
 
-// T010: Test multiple filters with AND logic
+// T010: Test multiple filters with AND logic.
 func TestAccFlavorDataSource_multipleFilters(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { provider.TestAccPreCheck(t) },
@@ -135,7 +135,7 @@ data "zillaforge_flavors" "test" {
 }
 `
 
-// T011: Test empty results when no matches found
+// T011: Test empty results when no matches found.
 func TestAccFlavorDataSource_emptyResults(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { provider.TestAccPreCheck(t) },
@@ -161,14 +161,14 @@ data "zillaforge_flavors" "test" {
 }
 `
 
-// T012: Test API authentication error
+// T012: Test API authentication error.
 func TestAccFlavorDataSource_apiAuthError(t *testing.T) {
 	// This test verifies that authentication errors are properly handled
 	// Note: Requires invalid credentials to be tested in real environment
 	t.Skip("API authentication error scenario test - requires test credentials with invalid auth")
 }
 
-// T013: Test API error handling
+// T013: Test API error handling.
 func TestAccFlavorDataSource_apiErrorHandling(t *testing.T) {
 	// This test verifies that SDK errors are converted to diagnostics properly
 	// The implementation handles SDK errors in Read() method

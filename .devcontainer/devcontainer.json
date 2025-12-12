@@ -26,7 +26,7 @@
 		"vscode": {
 			"extensions": [
 				"golang.Go",
-				"GitHub.copilot",
+				"GitHub.copilot-chat",
 				"isudox.vscode-jetbrains-keybindings",
 				"Arjun.swagger-viewer",
 				"humao.rest-client",
