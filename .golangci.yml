@@ -1,6 +1,4 @@
-version: "2"
 linters:
-  default: none
   enable:
     - copyloopvar
     - durationcheck
@@ -17,26 +15,10 @@ linters:
     - unparam
     - unused
     - usetesting
-  exclusions:
-    generated: lax
-    presets:
-      - comments
-      - common-false-positives
-      - legacy
-      - std-error-handling
-    paths:
-      - third_party$
-      - builtin$
-      - examples$
+  # No presets configured; enable linters explicitly above
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-formatters:
-  enable:
-    - gofmt
-  exclusions:
-    generated: lax
-    paths:
-      - third_party$
-      - builtin$
-      - examples$
+run:
+  tests: true
+  timeout: 5m
