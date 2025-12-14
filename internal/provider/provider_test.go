@@ -5,6 +5,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -56,22 +57,88 @@ func TestZillaforgeProvider_Metadata(t *testing.T) {
 }
 
 func TestZillaforgeProvider_Configure_InitializesSDK(t *testing.T) {
-	// This test verifies Configure() successfully initializes the SDK client
-	// For now, we'll test with environment variables since the full schema isn't implemented yet
+	// This test verifies Configure() successfully sets up SDK client when
+	// SDK initialization succeeds. We inject a test double via
+	// `newClientWrapper` to avoid making network calls.
+	ctx := context.Background()
+	prov := New("test")()
+
 	validJWT := generateTestJWT(t, "")
 	t.Setenv("ZILLAFORGE_API_KEY", validJWT)
 	t.Setenv("ZILLAFORGE_PROJECT_ID", "test-project-123")
+	// Ensure sys code isn't set in the environment for this test
+	t.Setenv("ZILLAFORGE_PROJECT_SYS_CODE", "")
 
-	// Test will be implemented properly once SDK integration is complete
-	// Expected: Configure() should initialize SDK client and set ResourceData/DataSourceData
-	t.Skip("Test will pass after SDK integration (T022-T028)")
+	// Inject a stub that returns a fake project client without error
+	oldFactory := newClientWrapper
+	defer func() { newClientWrapper = oldFactory }()
+
+	newClientWrapper = func(apiEndpoint, apiKey string) clientWrapper {
+		return &testClient{projectResult: struct{}{}, projectErr: nil}
+	}
+
+	req := frameworkProvider.ConfigureRequest{}
+	resp := &frameworkProvider.ConfigureResponse{}
+	prov.Configure(ctx, req, resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Expected no diagnostics error, got: %v", resp.Diagnostics.Errors())
+	}
+
+	if resp.DataSourceData == nil || resp.ResourceData == nil {
+		t.Fatalf("Expected DataSourceData and ResourceData to be set after successful Configure")
+	}
 }
 
 func TestZillaforgeProvider_Configure_InvalidCredentials(t *testing.T) {
-	// This test verifies Configure() returns diagnostic errors with invalid/missing credentials
-	// Test will be implemented properly once SDK integration is complete
-	// Expected: Configure() should return diagnostic error when credentials are missing
-	t.Skip("Test will pass after SDK integration (T022-T028)")
+	// This test verifies Configure() surfaces SDK initialization errors
+	// as diagnostics when the SDK fails to initialize (e.g., invalid creds).
+	ctx := context.Background()
+	prov := New("test")()
+
+	validJWT := generateTestJWT(t, "")
+	t.Setenv("ZILLAFORGE_API_KEY", validJWT)
+	t.Setenv("ZILLAFORGE_PROJECT_ID", "test-project-123")
+	// Ensure sys code isn't set in the environment for this test
+	t.Setenv("ZILLAFORGE_PROJECT_SYS_CODE", "")
+
+	// Inject a stub client that returns an error from Project()
+	oldFactory := newClientWrapper
+	defer func() { newClientWrapper = oldFactory }()
+
+	newClientWrapper = func(apiEndpoint, apiKey string) clientWrapper {
+		return &testClient{projectResult: nil, projectErr: fmt.Errorf("simulated SDK error")}
+	}
+
+	req := frameworkProvider.ConfigureRequest{}
+	resp := &frameworkProvider.ConfigureResponse{}
+	prov.Configure(ctx, req, resp)
+
+	if !resp.Diagnostics.HasError() {
+		t.Fatalf("Expected diagnostics error due to SDK init failure")
+	}
+
+	found := false
+	for _, d := range resp.Diagnostics.Errors() {
+		if d.Summary() == "SDK Initialization Failed" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Expected 'SDK Initialization Failed' diagnostic, got: %v", resp.Diagnostics.Errors())
+	}
+}
+
+// testClient is a small test double implementing clientWrapper used in
+// unit tests above to control Project() behavior.
+type testClient struct {
+	projectResult interface{}
+	projectErr    error
+}
+
+func (t *testClient) Project(ctx context.Context, projectIDOrCode string) (interface{}, error) {
+	return t.projectResult, t.projectErr
 }
 
 // T039: Test both project identifiers provided (should fail).
@@ -113,7 +180,9 @@ func TestZillaforgeProvider_Schema_NeitherProjectIdentifier(t *testing.T) {
 
 	validJWT := generateTestJWT(t, "")
 	t.Setenv("ZILLAFORGE_API_KEY", validJWT)
-	// Don't set either project identifier
+	// Ensure no project identifiers are set in the environment for deterministic testing
+	t.Setenv("ZILLAFORGE_PROJECT_ID", "")
+	t.Setenv("ZILLAFORGE_PROJECT_SYS_CODE", "")
 
 	req := frameworkProvider.ConfigureRequest{}
 	resp := &frameworkProvider.ConfigureResponse{}
@@ -145,23 +214,24 @@ func TestZillaforgeProvider_Schema_ValidWithProjectID(t *testing.T) {
 	validJWT := generateTestJWT(t, "")
 	t.Setenv("ZILLAFORGE_API_KEY", validJWT)
 	t.Setenv("ZILLAFORGE_PROJECT_ID", "test-project-123")
+	// Clear sys code to avoid interference from environment
+	t.Setenv("ZILLAFORGE_PROJECT_SYS_CODE", "")
+
+	// Inject a stub client so SDK initialization succeeds during unit tests
+	oldFactory := newClientWrapper
+	defer func() { newClientWrapper = oldFactory }()
+
+	newClientWrapper = func(apiEndpoint, apiKey string) clientWrapper {
+		return &testClient{projectResult: struct{}{}, projectErr: nil}
+	}
 
 	req := frameworkProvider.ConfigureRequest{}
 	resp := &frameworkProvider.ConfigureResponse{}
 
 	prov.Configure(ctx, req, resp)
 
-	// This will fail until we mock the SDK properly, but validates the schema
-	// For now we expect it to fail on SDK initialization, not validation
 	if resp.Diagnostics.HasError() {
-		// Check it's an SDK error, not a validation error
-		for _, diag := range resp.Diagnostics.Errors() {
-			if diag.Summary() == "Conflicting Project Identifiers" || diag.Summary() == "Missing Project Identifier" {
-				t.Fatalf("Got unexpected validation error: %v", diag)
-			}
-		}
-		// SDK initialization error is expected in unit tests
-		t.Skip("SDK initialization fails in unit test (expected)")
+		t.Fatalf("Expected no diagnostics error, got: %v", resp.Diagnostics.Errors())
 	}
 }
 
@@ -173,14 +243,25 @@ func TestZillaforgeProvider_Schema_ValidWithProjectSysCode(t *testing.T) {
 	validJWT := generateTestJWT(t, "")
 	t.Setenv("ZILLAFORGE_API_KEY", validJWT)
 	t.Setenv("ZILLAFORGE_PROJECT_SYS_CODE", "TEST-CODE-456")
+	// Clear project id to avoid interference from environment
+	t.Setenv("ZILLAFORGE_PROJECT_ID", "")
+
+	// Inject a stub client so SDK initialization succeeds during unit tests
+	oldFactory := newClientWrapper
+	defer func() { newClientWrapper = oldFactory }()
+
+	newClientWrapper = func(apiEndpoint, apiKey string) clientWrapper {
+		return &testClient{projectResult: struct{}{}, projectErr: nil}
+	}
 
 	req := frameworkProvider.ConfigureRequest{}
 	resp := &frameworkProvider.ConfigureResponse{}
 
 	prov.Configure(ctx, req, resp)
 
-	// This will fail until we mock the SDK properly, but validates the schema
-	// For now we expect it to fail on SDK initialization, not validation
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Expected no diagnostics error, got: %v", resp.Diagnostics.Errors())
+	}
 	if resp.Diagnostics.HasError() {
 		// Check it's an SDK error, not a validation error
 		for _, diag := range resp.Diagnostics.Errors() {
@@ -240,8 +321,19 @@ func TestZillaforgeProvider_MultiInstance_Aliases(t *testing.T) {
 	prov2 := New("test")()
 	validJWT2 := generateTestJWT(t, "secret2")
 
+	// Inject a stub factory that returns a distinct fake client per apiKey so
+	// we can validate that multiple instances configure independently.
+	oldFactory := newClientWrapper
+	defer func() { newClientWrapper = oldFactory }()
+
+	newClientWrapper = func(apiEndpoint, apiKey string) clientWrapper {
+		return &testClient{projectResult: apiKey, projectErr: nil}
+	}
+
 	// Configure first instance
 	t.Setenv("ZILLAFORGE_API_KEY", validJWT1)
+	// Ensure no sys code is set globally to avoid interfering with validation
+	t.Setenv("ZILLAFORGE_PROJECT_SYS_CODE", "")
 	t.Setenv("ZILLAFORGE_PROJECT_ID", "project-1")
 
 	req1 := frameworkProvider.ConfigureRequest{}
@@ -256,23 +348,16 @@ func TestZillaforgeProvider_MultiInstance_Aliases(t *testing.T) {
 	resp2 := &frameworkProvider.ConfigureResponse{}
 	prov2.Configure(ctx, req2, resp2)
 
-	// Both should be configured independently
-	// (SDK errors are expected in unit tests, but validation should pass)
 	if resp1.Diagnostics.HasError() {
-		for _, diag := range resp1.Diagnostics.Errors() {
-			if diag.Summary() != "SDK Initialization Failed" {
-				t.Fatalf("Provider 1 got unexpected error: %v", diag)
-			}
-		}
+		t.Fatalf("Provider 1 got unexpected diagnostics: %v", resp1.Diagnostics.Errors())
 	}
 
 	if resp2.Diagnostics.HasError() {
-		for _, diag := range resp2.Diagnostics.Errors() {
-			if diag.Summary() != "SDK Initialization Failed" {
-				t.Fatalf("Provider 2 got unexpected error: %v", diag)
-			}
-		}
+		t.Fatalf("Provider 2 got unexpected diagnostics: %v", resp2.Diagnostics.Errors())
 	}
 
-	t.Skip("Multi-instance test passes validation (SDK errors expected in unit tests)")
+	// Verify the DataSourceData/ResourceData reflect distinct clients
+	if fmt.Sprint(resp1.DataSourceData) == fmt.Sprint(resp2.DataSourceData) {
+		t.Fatalf("Expected distinct SDK clients per provider instance, got identical values")
+	}
 }

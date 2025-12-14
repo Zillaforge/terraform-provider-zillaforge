@@ -4,6 +4,7 @@
 package data_test
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/Zillaforge/terraform-provider-zillaforge/internal/provider"
@@ -136,15 +137,41 @@ data "zillaforge_networks" "test" {
 
 // T040: Test API authentication error.
 func TestAccNetworkDataSource_apiAuthError(t *testing.T) {
-	// This test verifies that authentication errors are properly handled
-	// Note: Requires invalid credentials to be tested in real environment
-	t.Skip("API authentication error scenario test - requires test credentials with invalid auth")
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { provider.TestAccPreCheck(t) },
+		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+provider "zillaforge" {
+	api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.signature"
+}
+
+data "zillaforge_networks" "test" {}
+`,
+				ExpectError: regexp.MustCompile(`(?i)unauthori|401|403|authentication|invalid credentials|verify token|illegal token|sdk initialization failed|\b400\b`),
+			},
+		},
+	})
 }
 
 // T041: Test API error handling.
 func TestAccNetworkDataSource_apiErrorHandling(t *testing.T) {
-	// This test verifies that SDK errors are converted to diagnostics properly
-	// The implementation handles SDK errors in Read() method
-	// Note: Comprehensive error testing requires SDK error mocking
-	t.Skip("API error handling scenario test - requires SDK error mocking framework")
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { provider.TestAccPreCheck(t) },
+		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: `
+provider "zillaforge" {
+	api_endpoint = "http://127.0.0.1:1"
+	api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.signature"
+}
+
+data "zillaforge_networks" "test" {}
+`,
+				ExpectError: regexp.MustCompile(`(?i)connection refused|connect:|timeout|EOF|no such host`),
+			},
+		},
+	})
 }

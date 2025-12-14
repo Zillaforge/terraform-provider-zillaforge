@@ -4,8 +4,10 @@
 package data_test
 
 import (
+	"fmt"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/Zillaforge/terraform-provider-zillaforge/internal/provider"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -13,24 +15,40 @@ import (
 
 // T026: Acceptance test - Query keypair by name.
 func TestAccKeypairDataSource_FilterByName(t *testing.T) {
+	// Use a unique name per test run to avoid collisions with existing resources
+	name := fmt.Sprintf("test-query-by-name-%d", time.Now().UnixNano())
+	setup := fmt.Sprintf(`
+resource "zillaforge_keypair" "setup" {
+  name        = "%s"
+  description = "Keypair for name filter test"
+  public_key  = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl test@example.com"
+}
+`, name)
+
+	byName := setup + `
+data "zillaforge_keypairs" "test" {
+  name = zillaforge_keypair.setup.name
+}
+`
+
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { provider.TestAccPreCheck(t) },
 		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			// First create a keypair to query
 			{
-				Config: testAccKeypairDataSourceConfig_setupForName,
+				Config: setup,
 			},
 			// Then query it by name
 			{
-				Config: testAccKeypairDataSourceConfig_byName,
+				Config: byName,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					// Verify filter was applied
-					resource.TestCheckResourceAttr("data.zillaforge_keypairs.test", "name", "test-query-by-name"),
+					resource.TestCheckResourceAttr("data.zillaforge_keypairs.test", "name", name),
 					// Verify keypairs list exists
 					resource.TestCheckResourceAttrSet("data.zillaforge_keypairs.test", "keypairs.#"),
 					// Verify at least one result returned
-					resource.TestCheckResourceAttr("data.zillaforge_keypairs.test", "keypairs.0.name", "test-query-by-name"),
+					resource.TestCheckResourceAttr("data.zillaforge_keypairs.test", "keypairs.0.name", name),
 					resource.TestCheckResourceAttrSet("data.zillaforge_keypairs.test", "keypairs.0.id"),
 					resource.TestCheckResourceAttrSet("data.zillaforge_keypairs.test", "keypairs.0.public_key"),
 					resource.TestCheckResourceAttrSet("data.zillaforge_keypairs.test", "keypairs.0.fingerprint"),
@@ -40,39 +58,37 @@ func TestAccKeypairDataSource_FilterByName(t *testing.T) {
 	})
 }
 
-const testAccKeypairDataSourceConfig_setupForName = `
-resource "zillaforge_keypair" "setup" {
-  name        = "test-query-by-name"
-  description = "Keypair for name filter test"
-  public_key  = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl test@example.com"
-}
-`
-
-const testAccKeypairDataSourceConfig_byName = `
-resource "zillaforge_keypair" "setup" {
-  name        = "test-query-by-name"
-  description = "Keypair for name filter test"
-  public_key  = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl test@example.com"
-}
-
-data "zillaforge_keypairs" "test" {
-  name = zillaforge_keypair.setup.name
-}
-`
+// setup/byName configs are generated dynamically to avoid name collisions
 
 // T027: Acceptance test - Query keypair by ID.
 func TestAccKeypairDataSource_FilterByID(t *testing.T) {
+	// Use a unique name per test run to avoid collisions with existing resources
+	name := fmt.Sprintf("test-query-by-id-%d", time.Now().UnixNano())
+	setup := fmt.Sprintf(`
+resource "zillaforge_keypair" "setup" {
+  name        = "%s"
+  description = "Keypair for ID filter test"
+  public_key  = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl test@example.com"
+}
+`, name)
+
+	byID := setup + `
+data "zillaforge_keypairs" "test" {
+  id = zillaforge_keypair.setup.id
+}
+`
+
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { provider.TestAccPreCheck(t) },
 		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			// First create a keypair to query
 			{
-				Config: testAccKeypairDataSourceConfig_setupForID,
+				Config: setup,
 			},
 			// Then query it by ID
 			{
-				Config: testAccKeypairDataSourceConfig_byID,
+				Config: byID,
 				Check: resource.ComposeAggregateTestCheckFunc(
 					// Verify filter was applied
 					resource.TestCheckResourceAttrPair("data.zillaforge_keypairs.test", "id", "zillaforge_keypair.setup", "id"),
@@ -80,7 +96,7 @@ func TestAccKeypairDataSource_FilterByID(t *testing.T) {
 					resource.TestCheckResourceAttr("data.zillaforge_keypairs.test", "keypairs.#", "1"),
 					// Verify result matches the created keypair
 					resource.TestCheckResourceAttrPair("data.zillaforge_keypairs.test", "keypairs.0.id", "zillaforge_keypair.setup", "id"),
-					resource.TestCheckResourceAttr("data.zillaforge_keypairs.test", "keypairs.0.name", "test-query-by-id"),
+					resource.TestCheckResourceAttr("data.zillaforge_keypairs.test", "keypairs.0.name", name),
 					resource.TestCheckResourceAttrSet("data.zillaforge_keypairs.test", "keypairs.0.public_key"),
 					resource.TestCheckResourceAttrSet("data.zillaforge_keypairs.test", "keypairs.0.fingerprint"),
 				),
@@ -89,25 +105,7 @@ func TestAccKeypairDataSource_FilterByID(t *testing.T) {
 	})
 }
 
-const testAccKeypairDataSourceConfig_setupForID = `
-resource "zillaforge_keypair" "setup" {
-  name        = "test-query-by-id"
-  description = "Keypair for ID filter test"
-  public_key  = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl test@example.com"
-}
-`
-
-const testAccKeypairDataSourceConfig_byID = `
-resource "zillaforge_keypair" "setup" {
-  name        = "test-query-by-id"
-  description = "Keypair for ID filter test"
-  public_key  = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl test@example.com"
-}
-
-data "zillaforge_keypairs" "test" {
-  id = zillaforge_keypair.setup.id
-}
-`
+// setup/byID configs are generated dynamically to avoid name collisions
 
 // T028: Acceptance test - List all keypairs (no filters).
 func TestAccKeypairDataSource_ListAll(t *testing.T) {

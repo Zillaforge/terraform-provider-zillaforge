@@ -7,7 +7,7 @@ data "zillaforge_networks" "default" {
 }
 
 data "zillaforge_keypairs" "generated" {
-    name=resource.zillaforge_keypair.auto_generated.name
+  name = resource.zillaforge_keypair.auto_generated.name
 }
 
 output "default_flavor_id" {

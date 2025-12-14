@@ -24,6 +24,29 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
+// clientWrapper is a minimal interface wrapping the parts of the cloudsdk
+// that the provider needs during Configure(). Using this small interface
+// allows unit tests to inject test doubles without relying on the full SDK
+// implementation or network access.
+type clientWrapper interface {
+	Project(ctx context.Context, projectIDOrCode string) (interface{}, error)
+}
+
+// newClientWrapper constructs a clientWrapper from SDK credentials. In
+// production this delegates to cloudsdk.NewClient; tests can replace this
+// variable with a stub to control behavior in unit tests.
+var newClientWrapper = func(apiEndpoint, apiKey string) clientWrapper {
+	return &sdkClientWrapper{client: cloudsdk.NewClient(apiEndpoint, apiKey)}
+}
+
+type sdkClientWrapper struct {
+	client *cloudsdk.Client
+}
+
+func (s *sdkClientWrapper) Project(ctx context.Context, projectIDOrCode string) (interface{}, error) {
+	return s.client.Project(ctx, projectIDOrCode)
+}
+
 // Ensure ZillaforgeProvider satisfies various provider interfaces.
 var _ provider.Provider = &ZillaforgeProvider{}
 var _ provider.ProviderWithFunctions = &ZillaforgeProvider{}
@@ -181,7 +204,7 @@ func (p *ZillaforgeProvider) Configure(ctx context.Context, req provider.Configu
 	})
 
 	// T055: Initialize SDK client with validated config values
-	sdkClient := cloudsdk.NewClient(apiEndpoint, apiKey)
+	sdkClient := newClientWrapper(apiEndpoint, apiKey)
 
 	// Get project-specific client
 	projectClient, err := sdkClient.Project(ctx, projectIDOrCode)

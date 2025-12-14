@@ -4,10 +4,13 @@
 package data_test
 
 import (
+	"fmt"
+	"regexp"
 	"testing"
 
 	"github.com/Zillaforge/terraform-provider-zillaforge/internal/provider"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
 // T006: Test basic flavors query without filters.
@@ -22,7 +25,17 @@ func TestAccFlavorDataSource_basic(t *testing.T) {
 					// Verify flavors list exists
 					resource.TestCheckResourceAttrSet("data.zillaforge_flavors.test", "flavors.#"),
 					// Verify at least one flavor is returned
-					resource.TestCheckResourceAttr("data.zillaforge_flavors.test", "flavors.#", "0"),
+					resource.TestCheckFunc(func(s *terraform.State) error {
+						rs, ok := s.RootModule().Resources["data.zillaforge_flavors.test"]
+						if !ok {
+							return fmt.Errorf("data source not found in state")
+						}
+						count := rs.Primary.Attributes["flavors.#"]
+						if count == "0" || count == "" {
+							return fmt.Errorf("expected at least one flavor, got %q", count)
+						}
+						return nil
+					}),
 				),
 			},
 		},
@@ -163,15 +176,43 @@ data "zillaforge_flavors" "test" {
 
 // T012: Test API authentication error.
 func TestAccFlavorDataSource_apiAuthError(t *testing.T) {
-	// This test verifies that authentication errors are properly handled
-	// Note: Requires invalid credentials to be tested in real environment
-	t.Skip("API authentication error scenario test - requires test credentials with invalid auth")
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { provider.TestAccPreCheck(t) },
+		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// Provide an obviously invalid API key to trigger auth failure
+				Config: `
+provider "zillaforge" {
+	api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.signature"
+}
+
+data "zillaforge_flavors" "test" {}
+`,
+				ExpectError: regexp.MustCompile(`(?i)unauthori|401|403|authentication|invalid credentials|verify token|illegal token|sdk initialization failed|\b400\b`),
+			},
+		},
+	})
 }
 
 // T013: Test API error handling.
 func TestAccFlavorDataSource_apiErrorHandling(t *testing.T) {
-	// This test verifies that SDK errors are converted to diagnostics properly
-	// The implementation handles SDK errors in Read() method
-	// Note: Comprehensive error testing requires SDK error mocking
-	t.Skip("API error handling scenario test - requires SDK error mocking framework")
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { provider.TestAccPreCheck(t) },
+		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// Point the provider at a non-routable endpoint to simulate network/SDK errors
+				Config: `
+provider "zillaforge" {
+	api_endpoint = "http://127.0.0.1:1"
+	api_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.signature"
+}
+
+data "zillaforge_flavors" "test" {}
+`,
+				ExpectError: regexp.MustCompile(`(?i)connection refused|connect:|timeout|EOF|no such host`),
+			},
+		},
+	})
 }
