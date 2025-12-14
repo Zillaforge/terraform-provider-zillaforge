@@ -12,8 +12,8 @@ import (
 	cloudsdk "github.com/Zillaforge/cloud-sdk"
 	scaffolding_ephemeral "github.com/Zillaforge/terraform-provider-zillaforge/internal/scaffolding/ephemeral"
 	scaffolding_function "github.com/Zillaforge/terraform-provider-zillaforge/internal/scaffolding/function"
-	scaffolding_resource "github.com/Zillaforge/terraform-provider-zillaforge/internal/scaffolding/resource"
 	vps_data "github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/data"
+	vps_resource "github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/resource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	"github.com/hashicorp/terraform-plugin-framework/function"
@@ -64,11 +64,11 @@ func (p *ZillaforgeProvider) Schema(ctx context.Context, req provider.SchemaRequ
 		Attributes: map[string]schema.Attribute{
 			"api_endpoint": schema.StringAttribute{
 				MarkdownDescription: "Base URL for the Zillaforge API. Override this to use a different environment (staging, development) or regional endpoint. Can also be set via `ZILLAFORGE_API_ENDPOINT` environment variable.",
-				Required:            true,
+				Optional:            true,
 			},
 			"api_key": schema.StringAttribute{
 				MarkdownDescription: "API key for authenticating with Zillaforge services. Must be a valid JWT token. This credential is sensitive and will not be displayed in Terraform plan output or logs. Can be provided via the `ZILLAFORGE_API_KEY` environment variable.",
-				Required:            true,
+				Optional:            true,
 				Sensitive:           true,
 			},
 			"project_id": schema.StringAttribute{
@@ -212,7 +212,7 @@ func (p *ZillaforgeProvider) Configure(ctx context.Context, req provider.Configu
 
 func (p *ZillaforgeProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		scaffolding_resource.NewExampleResource,
+		vps_resource.NewKeypairResource,
 	}
 }
 
@@ -226,6 +226,7 @@ func (p *ZillaforgeProvider) DataSources(ctx context.Context) []func() datasourc
 	return []func() datasource.DataSource{
 		vps_data.NewFlavorDataSource,
 		vps_data.NewNetworkDataSource,
+		vps_data.NewKeypairDataSource,
 	}
 }
 

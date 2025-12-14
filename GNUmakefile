@@ -1,3 +1,6 @@
+-include .env
+export
+
 default: fmt lint install generate
 
 build:
@@ -21,4 +24,11 @@ test:
 testacc:
 	TF_ACC=1 go test -v -cover -timeout 120m ./...
 
-.PHONY: fmt lint test testacc build install generate
+verification_apply:
+	terraform -chdir=./examples/verification plan
+	terraform -chdir=./examples/verification apply
+
+verification_destroy:
+	terraform -chdir=./examples/verification destroy
+
+.PHONY: fmt lint test testacc build install generate verification_apply verification_destroy
