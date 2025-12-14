@@ -10,8 +10,6 @@ import (
 	"strings"
 
 	cloudsdk "github.com/Zillaforge/cloud-sdk"
-	scaffolding_ephemeral "github.com/Zillaforge/terraform-provider-zillaforge/internal/scaffolding/ephemeral"
-	scaffolding_function "github.com/Zillaforge/terraform-provider-zillaforge/internal/scaffolding/function"
 	vps_data "github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/data"
 	vps_resource "github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/resource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -240,9 +238,7 @@ func (p *ZillaforgeProvider) Resources(ctx context.Context) []func() resource.Re
 }
 
 func (p *ZillaforgeProvider) EphemeralResources(ctx context.Context) []func() ephemeral.EphemeralResource {
-	return []func() ephemeral.EphemeralResource{
-		scaffolding_ephemeral.NewExampleEphemeralResource,
-	}
+	return []func() ephemeral.EphemeralResource{}
 }
 
 func (p *ZillaforgeProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
@@ -254,9 +250,7 @@ func (p *ZillaforgeProvider) DataSources(ctx context.Context) []func() datasourc
 }
 
 func (p *ZillaforgeProvider) Functions(ctx context.Context) []func() function.Function {
-	return []func() function.Function{
-		scaffolding_function.NewExampleFunction,
-	}
+	return []func() function.Function{}
 }
 
 func New(version string) func() provider.Provider {
