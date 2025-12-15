@@ -4,6 +4,7 @@ Auto-generated from all feature plans. Last updated: 2025-12-06
 
 ## Active Technologies
 - Cloud-sdk backed API (RESTful), Terraform state file (003-keypair-data-resource)
+- N/A (stateless provider, all state managed by Terraform and ZillaForge API) (004-security-group-data-resource)
 
 - Go 1.22.4 (001-zillaforge-provider-migration)
 
@@ -23,6 +24,7 @@ tests/
 Go 1.22.4: Follow standard conventions
 
 ## Recent Changes
+- 004-security-group-data-resource: Added Go 1.22.4
 - 003-keypair-data-resource: Added Go 1.22.4
 
 - 001-zillaforge-provider-migration: Added Go 1.22.4

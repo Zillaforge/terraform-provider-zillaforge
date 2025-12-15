@@ -234,6 +234,7 @@ func (p *ZillaforgeProvider) Configure(ctx context.Context, req provider.Configu
 func (p *ZillaforgeProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		vps_resource.NewKeypairResource,
+		vps_resource.NewSecurityGroupResource,
 	}
 }
 
@@ -246,6 +247,7 @@ func (p *ZillaforgeProvider) DataSources(ctx context.Context) []func() datasourc
 		vps_data.NewFlavorDataSource,
 		vps_data.NewNetworkDataSource,
 		vps_data.NewKeypairDataSource,
+		vps_data.NewSecurityGroupsDataSource,
 	}
 }
 
