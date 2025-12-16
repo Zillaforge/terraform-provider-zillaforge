@@ -12,6 +12,7 @@ import (
 	cloudsdk "github.com/Zillaforge/cloud-sdk"
 	vps_data "github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/data"
 	vps_resource "github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/resource"
+	vrm_data "github.com/Zillaforge/terraform-provider-zillaforge/internal/vrm/data"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	"github.com/hashicorp/terraform-plugin-framework/function"
@@ -248,6 +249,7 @@ func (p *ZillaforgeProvider) DataSources(ctx context.Context) []func() datasourc
 		vps_data.NewNetworkDataSource,
 		vps_data.NewKeypairDataSource,
 		vps_data.NewSecurityGroupsDataSource,
+		vrm_data.NewImagesDataSource,
 	}
 }
 
