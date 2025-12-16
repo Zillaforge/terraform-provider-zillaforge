@@ -651,8 +651,8 @@ func mapSDKRulesToTerraform(ctx context.Context, sdkRules []sgmodels.SecurityGro
 func parsePortRange(portRange string) (*int, *int, error) {
 	// Handle "all"
 	if strings.ToLower(portRange) == "all" {
-		min, max := 1, 65535
-		return &min, &max, nil
+		minPort, maxPort := 1, 65535
+		return &minPort, &maxPort, nil
 	}
 
 	// Handle range "start-end"
