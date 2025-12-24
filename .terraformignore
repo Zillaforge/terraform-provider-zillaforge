@@ -1,0 +1,46 @@
+# .terraformignore
+# Patterns for files to exclude when using Terraform registry publishing
+
+# Git files
+.git/
+.gitignore
+
+# Build artifacts
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+terraform.tfplan
+*.backup
+*.log
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.circleci/
+
+# Development
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+*_test.go
+test/
+tests/
+
+# Go development
+vendor/
+bin/
+dist/
+
+# Environment files
+.env
+*.tfvars

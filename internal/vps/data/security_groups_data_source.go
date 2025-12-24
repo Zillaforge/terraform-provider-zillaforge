@@ -263,6 +263,9 @@ func (d *SecurityGroupsDataSource) Read(ctx context.Context, req datasource.Read
 		})
 	}
 
+	// Ensure deterministic order by ID
+	sortSecurityGroupsByID(securityGroups)
+
 	// Set state
 	config.SecurityGroups = securityGroups
 
@@ -363,4 +366,11 @@ func formatPortRange(portMin, portMax int) string {
 		return fmt.Sprintf("%d", portMin)
 	}
 	return fmt.Sprintf("%d-%d", portMin, portMax)
+}
+
+// sortSecurityGroupsByID sorts a slice of SecurityGroupDataModel in-place by ID (ascending).
+func sortSecurityGroupsByID(sgs []SecurityGroupDataModel) {
+	sort.SliceStable(sgs, func(i, j int) bool {
+		return sgs[i].ID.ValueString() < sgs[j].ID.ValueString()
+	})
 }

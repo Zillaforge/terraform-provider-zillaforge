@@ -4,8 +4,10 @@
 package resource_test
 
 import (
+	"fmt"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/Zillaforge/terraform-provider-zillaforge/internal/provider"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -294,11 +296,36 @@ resource "zillaforge_security_group" "delete" {
 `
 
 // T017: Acceptance test - Block deletion when attached to instances (handle 409).
-// NOTE: This test requires attaching the security group to a server instance which
-// is outside the scope of this feature; left as a TODO to implement when server
-// provisioning helper is available in test environment.
 func TestAccSecurityGroup_DeleteBlockedWhenAttached(t *testing.T) {
-	t.Skip("TODO: Implement after server provisioning helper is available in test environment")
+	name := fmt.Sprintf("test-delete-blocked-%d", time.Now().UnixNano()%100000)
+	config1 := fmt.Sprintf(testAccSecurityGroupConfig_deleteBlocked, name, name)
+	config2 := fmt.Sprintf(testAccSecurityGroupConfig_deleteBlockedServerOnly, name)
+	config3 := fmt.Sprintf(testAccSecurityGroupConfig_deleteBlockedCleanup, name)
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { provider.TestAccPreCheck(t) },
+		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Step 1: Create security group and server with security group attached
+			{
+				Config: config1,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("zillaforge_security_group.test", "name", name+"-sg"),
+					resource.TestCheckResourceAttrSet("zillaforge_security_group.test", "id"),
+					resource.TestCheckResourceAttr("zillaforge_server.test", "name", name+"-server"),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "id"),
+				),
+			},
+			// Step 2: Attempt to delete security group while attached to server - should fail with 409
+			{
+				Config:      config2,
+				ExpectError: regexp.MustCompile(`(?i)Security Group.*[Ii]n [Uu]se|Cannot delete security group.*in use`),
+			},
+			// Step 3: Delete server first, then security group can be deleted
+			{
+				Config: config3,
+			},
+		},
+	})
 }
 
 // T018: Acceptance test - ForceNew on name change.
@@ -517,5 +544,66 @@ func TestAccSecurityGroup_ImportInvalidID(t *testing.T) {
 const testAccSecurityGroupConfig_importInvalidID = `
 resource "zillaforge_security_group" "test" {
   name = "test-import-invalid"
+}
+`
+
+const testAccSecurityGroupConfig_deleteBlocked = `
+data "zillaforge_flavors" "test" {}
+
+data "zillaforge_images" "test" {}
+
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_security_group" "test" {
+  name        = "%s-sg"
+  description = "Security group for delete blocked test"
+}
+
+resource "zillaforge_server" "test" {
+  name      = "%s-server"
+  flavor_id = data.zillaforge_flavors.test.flavors[0].id
+  image_id  = data.zillaforge_images.test.images[0].id
+  password  = "TestPassword123!"
+
+  wait_for_deleted = false
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[0].id
+    security_group_ids = [zillaforge_security_group.test.id]
+  }
+}
+`
+
+const testAccSecurityGroupConfig_deleteBlockedServerOnly = `
+data "zillaforge_flavors" "test" {}
+
+data "zillaforge_images" "test" {}
+
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_server" "test" {
+  name      = "%s-server"
+  flavor_id = data.zillaforge_flavors.test.flavors[0].id
+  image_id  = data.zillaforge_images.test.images[0].id
+  password  = "TestPassword123!"
+
+  wait_for_deleted = false
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[0].id
+  }
+}
+`
+
+const testAccSecurityGroupConfig_deleteBlockedCleanup = `
+data "zillaforge_flavors" "test" {}
+
+data "zillaforge_images" "test" {}
+
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_security_group" "test" {
+  name        = "%s-sg"
+  description = "Security group for delete blocked test"
 }
 `

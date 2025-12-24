@@ -6,6 +6,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	cloudsdk "github.com/Zillaforge/cloud-sdk"
 	networksmodels "github.com/Zillaforge/cloud-sdk/models/vps/networks"
@@ -127,5 +128,14 @@ func listNetworksWithSDK(ctx context.Context, projectClient *cloudsdk.ProjectCli
 		}
 		results = append(results, nm)
 	}
+	// Deterministic sort: by id asc.
+	sortNetworksDeterministic(results)
 	return results, nil
+}
+
+// sortNetworksDeterministic sorts networks by id asc (deterministic).
+func sortNetworksDeterministic(results []NetworkModel) {
+	sort.SliceStable(results, func(i, j int) bool {
+		return results[i].ID.ValueString() < results[j].ID.ValueString()
+	})
 }

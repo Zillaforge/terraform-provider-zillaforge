@@ -36,3 +36,7 @@ website/vendor
 
 *.tfvars
 .env
+
+# coverage file
+coverage.html
+coverage.out

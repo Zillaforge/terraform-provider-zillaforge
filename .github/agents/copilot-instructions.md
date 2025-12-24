@@ -25,9 +25,9 @@ tests/
 Go 1.22.4: Follow standard conventions
 
 ## Recent Changes
+- 006-server-resource: Added Go 1.22.4
 - 005-tag-data-source: Added Go 1.22.4
 - 004-security-group-data-resource: Added Go 1.22.4
-- 003-keypair-data-resource: Added Go 1.22.4
 
 
 <!-- MANUAL ADDITIONS START -->

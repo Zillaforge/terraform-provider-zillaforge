@@ -1,6 +1,8 @@
 -include .env
 export
 
+PARALLEL ?= 2
+
 default: fmt lint install generate
 
 build:
@@ -21,8 +23,21 @@ fmt:
 test:
 	go test -v -cover -timeout=120s -parallel=10 ./...
 
+# Set PARALLEL to control maximum parallel tests (default: 2)
+# Example: make testacc PARALLEL=4
+# Use TESTARGS to pass additional `go test` flags, for example:
+#   make testacc TESTARGS='-run=TestAccImagesDataSource' PARALLEL=1
+TESTARGS ?=
+
 testacc:
-	TF_ACC=1 go test -v -cover -timeout 120m ./...
+	@echo "Running acceptance tests with -parallel=$(PARALLEL)"; \
+	TF_ACC=1 go test -coverprofile=coverage.out --count 1 -v -cover -timeout 120m -failfast \
+	-parallel $(PARALLEL) \
+	./... $(TESTARGS)
+
+coverage: testacc
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
 
 verification_apply:
 	terraform -chdir=./examples/verification plan

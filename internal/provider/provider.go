@@ -236,6 +236,7 @@ func (p *ZillaforgeProvider) Resources(ctx context.Context) []func() resource.Re
 	return []func() resource.Resource{
 		vps_resource.NewKeypairResource,
 		vps_resource.NewSecurityGroupResource,
+		vps_resource.NewServerResource,
 	}
 }
 

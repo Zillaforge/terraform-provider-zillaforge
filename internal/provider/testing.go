@@ -4,6 +4,7 @@
 package provider
 
 import (
+	"os"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -32,7 +33,11 @@ var TestAccProtoV6ProviderFactoriesWithEcho = map[string]func() (tfprotov6.Provi
 // TestAccPreCheck runs pre-check validation before acceptance tests.
 // This is exported for use in other test packages (e.g., vps_test).
 func TestAccPreCheck(t *testing.T) {
-	// You can add code here to run prior to any test case execution, for example assertions
-	// about the appropriate environment variables being set are common to see in a pre-check
-	// function.
+	apiKey := os.Getenv("ZILLAFORGE_API_KEY")
+	projectID := os.Getenv("ZILLAFORGE_PROJECT_ID")
+	projectSys := os.Getenv("ZILLAFORGE_PROJECT_SYS_CODE")
+
+	if apiKey == "" || (projectID == "" && projectSys == "") {
+		t.Skip("Zillaforge API credentials or project not configured; skipping acceptance test")
+	}
 }
