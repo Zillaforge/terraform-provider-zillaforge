@@ -12,6 +12,7 @@ install: build
 	go install -v ./...
 
 lint:
+	golangci-lint cache clean
 	golangci-lint run
 
 generate:

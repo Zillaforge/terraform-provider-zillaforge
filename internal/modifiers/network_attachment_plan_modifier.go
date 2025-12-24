@@ -24,13 +24,8 @@ func (m IPAddressUnknownOnNetworkChangeModifier) MarkdownDescription(ctx context
 }
 
 func (m IPAddressUnknownOnNetworkChangeModifier) PlanModifyString(ctx context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
-	// If we're creating the resource, use state value if ip_address is not configured
+	// If we're creating the resource, do nothing (ip_address will be computed or use config)
 	if req.State.Raw.IsNull() {
-		// For creates, if config is null, leave it null (will be computed)
-		if req.ConfigValue.IsNull() {
-			return
-		}
-		// Otherwise, use the configured value
 		return
 	}
 
