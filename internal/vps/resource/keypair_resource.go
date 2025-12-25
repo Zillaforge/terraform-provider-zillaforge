@@ -9,6 +9,8 @@ import (
 
 	cloudsdk "github.com/Zillaforge/cloud-sdk"
 	keypairsmodels "github.com/Zillaforge/cloud-sdk/models/vps/keypairs"
+	"github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/model"
+
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -31,16 +33,6 @@ func NewKeypairResource() resource.Resource {
 // KeypairResource defines the keypair resource implementation.
 type KeypairResource struct {
 	client *cloudsdk.ProjectClient
-}
-
-// KeypairResourceModel describes the Terraform resource data model.
-type KeypairResourceModel struct {
-	ID          types.String `tfsdk:"id"`
-	Name        types.String `tfsdk:"name"`
-	Description types.String `tfsdk:"description"`
-	PublicKey   types.String `tfsdk:"public_key"`
-	PrivateKey  types.String `tfsdk:"private_key"` // Sensitive
-	Fingerprint types.String `tfsdk:"fingerprint"`
 }
 
 func (r *KeypairResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -112,7 +104,7 @@ func (r *KeypairResource) Configure(ctx context.Context, req resource.ConfigureR
 }
 
 func (r *KeypairResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan KeypairResourceModel
+	var plan model.KeypairResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -171,7 +163,7 @@ func (r *KeypairResource) Create(ctx context.Context, req resource.CreateRequest
 }
 
 func (r *KeypairResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var state KeypairResourceModel
+	var state model.KeypairResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -207,8 +199,8 @@ func (r *KeypairResource) Read(ctx context.Context, req resource.ReadRequest, re
 }
 
 func (r *KeypairResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan KeypairResourceModel
-	var state KeypairResourceModel
+	var plan model.KeypairResourceModel
+	var state model.KeypairResourceModel
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -255,7 +247,7 @@ func (r *KeypairResource) Update(ctx context.Context, req resource.UpdateRequest
 }
 
 func (r *KeypairResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var state KeypairResourceModel
+	var state model.KeypairResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -302,7 +294,7 @@ func (r *KeypairResource) ImportState(ctx context.Context, req resource.ImportSt
 	}
 
 	// Build state
-	var state KeypairResourceModel
+	var state model.KeypairResourceModel
 	state.ID = types.StringValue(keypair.ID)
 	state.Name = types.StringValue(keypair.Name)
 	if keypair.Description != "" {

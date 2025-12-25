@@ -14,6 +14,7 @@ import (
 
 	cloudsdk "github.com/Zillaforge/cloud-sdk"
 	servermodels "github.com/Zillaforge/cloud-sdk/models/vps/servers"
+	"github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/helper"
 	resourcemodels "github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/model"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
@@ -265,7 +266,7 @@ func (r *ServerResource) Create(ctx context.Context, req resource.CreateRequest,
 	})
 
 	// Build create request
-	createReq, diags := buildCreateRequest(ctx, plan)
+	createReq, diags := helper.BuildServerCreateRequest(ctx, plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -316,7 +317,7 @@ func (r *ServerResource) Create(ctx context.Context, req resource.CreateRequest,
 			"timeout": timeout.String(),
 		})
 
-		serverRes, err = waitForServerActive(ctx, vpsClient.Servers(), serverRes.Server.ID, timeout)
+		serverRes, err = helper.WaitForServerActive(ctx, vpsClient.Servers(), serverRes.Server.ID, timeout)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Create Error",
@@ -327,7 +328,7 @@ func (r *ServerResource) Create(ctx context.Context, req resource.CreateRequest,
 	}
 
 	// Map response to state
-	state, diags := mapServerToState(ctx, serverRes)
+	state, diags := helper.MapServerToState(ctx, serverRes)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -482,7 +483,7 @@ func (r *ServerResource) Read(ctx context.Context, req resource.ReadRequest, res
 	}
 
 	// Map response to state
-	newState, diags := mapServerToState(ctx, server)
+	newState, diags := helper.MapServerToState(ctx, server)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -701,7 +702,7 @@ func (r *ServerResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		"timeout": timeout.String(),
 	})
 
-	err = waitForServerDeleted(ctx, vpsClient.Servers(), state.ID.ValueString(), timeout)
+	err = helper.WaitForServerDeleted(ctx, vpsClient.Servers(), state.ID.ValueString(), timeout)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Delete Error",
@@ -730,7 +731,7 @@ func (r *ServerResource) Update(ctx context.Context, req resource.UpdateRequest,
 	})
 
 	// Build update request with only changed fields
-	updateCtx, diags := buildUpdateRequestWithNetworkChanges(ctx, plan, state)
+	updateCtx, diags := helper.BuildServerUpdateRequest(ctx, plan, state)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -938,7 +939,7 @@ func (r *ServerResource) Update(ctx context.Context, req resource.UpdateRequest,
 			"timeout": timeout.String(),
 		})
 
-		serverRes, err := waitForServerActive(ctx, vpsClient.Servers(), state.ID.ValueString(), timeout)
+		serverRes, err := helper.WaitForServerActive(ctx, vpsClient.Servers(), state.ID.ValueString(), timeout)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Update Error",
@@ -948,7 +949,7 @@ func (r *ServerResource) Update(ctx context.Context, req resource.UpdateRequest,
 		}
 
 		// Map updated server state
-		newState, diags := mapServerToState(ctx, serverRes)
+		newState, diags := helper.MapServerToState(ctx, serverRes)
 		resp.Diagnostics.Append(diags...)
 		if resp.Diagnostics.HasError() {
 			return
@@ -1078,7 +1079,7 @@ func (r *ServerResource) ImportState(ctx context.Context, req resource.ImportSta
 	}
 
 	// Build state from server response
-	state, diags := mapServerToState(ctx, serverRes)
+	state, diags := helper.MapServerToState(ctx, serverRes)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return

@@ -8,10 +8,11 @@ import (
 	"fmt"
 
 	cloudsdk "github.com/Zillaforge/cloud-sdk"
-	keypairsmodels "github.com/Zillaforge/cloud-sdk/models/vps/keypairs"
+	"github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/helper"
+	"github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/model"
+
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
@@ -26,22 +27,6 @@ func NewKeypairDataSource() datasource.DataSource {
 // KeypairDataSource defines the keypair data source implementation.
 type KeypairDataSource struct {
 	client *cloudsdk.ProjectClient
-}
-
-// KeypairDataSourceModel describes the data source config and filters.
-type KeypairDataSourceModel struct {
-	ID       types.String   `tfsdk:"id"`       // Optional filter
-	Name     types.String   `tfsdk:"name"`     // Optional filter
-	Keypairs []KeypairModel `tfsdk:"keypairs"` // Computed results
-}
-
-// KeypairModel represents a single keypair in the results list.
-type KeypairModel struct {
-	ID          types.String `tfsdk:"id"`
-	Name        types.String `tfsdk:"name"`
-	Description types.String `tfsdk:"description"`
-	PublicKey   types.String `tfsdk:"public_key"`
-	Fingerprint types.String `tfsdk:"fingerprint"`
 }
 
 func (d *KeypairDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -110,7 +95,7 @@ func (d *KeypairDataSource) Configure(ctx context.Context, req datasource.Config
 }
 
 func (d *KeypairDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	var data KeypairDataSourceModel
+	var data model.KeypairDataSourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 
 	if resp.Diagnostics.HasError() {
@@ -131,7 +116,7 @@ func (d *KeypairDataSource) Read(ctx context.Context, req datasource.ReadRequest
 
 	// If client not configured, return empty list (but not error) to avoid failing plan
 	if d.client == nil {
-		data.Keypairs = []KeypairModel{}
+		data.Keypairs = []model.KeypairModel{}
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		return
 	}
@@ -151,75 +136,24 @@ func (d *KeypairDataSource) Read(ctx context.Context, req datasource.ReadRequest
 		}
 
 		// Convert to model and set as single-item list
-		data.Keypairs = []KeypairModel{keypairToModel(*keypair)}
+		data.Keypairs = []model.KeypairModel{helper.KeypairToModel(*keypair)}
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		tflog.Trace(ctx, "Read zillaforge_keypairs data source by ID")
 		return
 	}
 
 	// T037: Name filter or list-all mode - use List()
-	keypairs, err := listKeypairsWithSDK(ctx, d.client, data)
+	keypairs, err := helper.ListKeypairsWithSDK(ctx, d.client, data)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Keypairs List Error",
 			fmt.Sprintf("Failed to list keypairs using SDK: %s", err),
 		)
-		data.Keypairs = []KeypairModel{}
+		data.Keypairs = []model.KeypairModel{}
 	} else {
 		data.Keypairs = keypairs
 	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 	tflog.Trace(ctx, "Read zillaforge_keypairs data source")
-}
-
-// T038: keypairToModel() conversion helper.
-func keypairToModel(kp keypairsmodels.Keypair) KeypairModel {
-	model := KeypairModel{
-		ID:          types.StringValue(kp.ID),
-		Name:        types.StringValue(kp.Name),
-		PublicKey:   types.StringValue(kp.PublicKey),
-		Fingerprint: types.StringValue(kp.Fingerprint),
-	}
-
-	// Handle optional description
-	if kp.Description != "" {
-		model.Description = types.StringValue(kp.Description)
-	} else {
-		model.Description = types.StringNull()
-	}
-
-	return model
-}
-
-// listKeypairsWithSDK queries keypairs using cloud-sdk List() method.
-func listKeypairsWithSDK(ctx context.Context, projectClient *cloudsdk.ProjectClient, filters KeypairDataSourceModel) ([]KeypairModel, error) {
-	if projectClient == nil {
-		return nil, fmt.Errorf("no project client available")
-	}
-
-	vpsClient := projectClient.VPS()
-	opts := &keypairsmodels.ListKeypairsOptions{}
-
-	// Apply name filter if provided
-	if !filters.Name.IsNull() && filters.Name.ValueString() != "" {
-		opts.Name = filters.Name.ValueString()
-	}
-
-	keypairList, err := vpsClient.Keypairs().List(ctx, opts)
-	if err != nil {
-		return nil, fmt.Errorf("sdk Keypair List() error: %w", err)
-	}
-
-	results := []KeypairModel{}
-	for _, kp := range keypairList {
-		// Apply exact name filter if provided
-		if !filters.Name.IsNull() && kp.Name != filters.Name.ValueString() {
-			continue
-		}
-
-		results = append(results, keypairToModel(*kp))
-	}
-
-	return results, nil
 }

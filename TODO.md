@@ -15,10 +15,19 @@
     * [x] Mutable
         * [x] Network 
         * [x] SecurityGroup
-  [x] Import
-  [ ] Timeouts has no function
+* [x] Import
+* [ ] Assocaite/Disassociate FIP
+* [ ] Timeouts has no function
 * [ ] Resize
-* [ ] LifeCycle Management
+* [ ] LifeCycle Management (Power On/Off)
 
 
 ## Floating IP 
+
+* [x] Parallel Test
+* [x] dedicate package folder for helper
+
+
+## Docker Conatiner
+
+* [ ] Install built binary in a container

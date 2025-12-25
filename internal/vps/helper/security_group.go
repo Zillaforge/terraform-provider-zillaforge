@@ -1,29 +1,33 @@
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package resource
+package helper
 
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
 	sgmodels "github.com/Zillaforge/cloud-sdk/models/vps/securitygroups"
+	"github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/model"
+	resourcemodels "github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/model"
+
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// buildSecurityGroupRules converts Terraform rule models to SDK rule creation requests.
-func buildSecurityGroupRules(ctx context.Context, model SecurityGroupResourceModel) ([]sgmodels.SecurityGroupRuleCreateRequest, diag.Diagnostics) {
+// BuildSecurityGroupRules converts Terraform rule models to SDK rule creation requests.
+func BuildSecurityGroupRules(ctx context.Context, model resourcemodels.SecurityGroupResourceModel) ([]sgmodels.SecurityGroupRuleCreateRequest, diag.Diagnostics) {
 	var rules []sgmodels.SecurityGroupRuleCreateRequest
 	var diags diag.Diagnostics
 
 	// Process ingress rules
 	if !model.IngressRule.IsNull() && !model.IngressRule.IsUnknown() {
-		var ingressRules []SecurityRuleModel
+		var ingressRules []resourcemodels.SecurityRuleModel
 		diags.Append(model.IngressRule.ElementsAs(ctx, &ingressRules, false)...)
 		if diags.HasError() {
 			return nil, diags
@@ -59,7 +63,7 @@ func buildSecurityGroupRules(ctx context.Context, model SecurityGroupResourceMod
 
 	// Process egress rules
 	if !model.EgressRule.IsNull() && !model.EgressRule.IsUnknown() {
-		var egressRules []SecurityRuleModel
+		var egressRules []resourcemodels.SecurityRuleModel
 		diags.Append(model.EgressRule.ElementsAs(ctx, &egressRules, false)...)
 		if diags.HasError() {
 			return nil, diags
@@ -100,14 +104,14 @@ func buildSecurityGroupRules(ctx context.Context, model SecurityGroupResourceMod
 	return rules, diags
 }
 
-// mapSDKRulesToTerraform converts SDK rules to Terraform models, separating by direction.
-func mapSDKRulesToTerraform(ctx context.Context, sdkRules []sgmodels.SecurityGroupRule) (types.List, types.List, diag.Diagnostics) {
+// MapSDKRulesToTerraform converts SDK rules to Terraform models, separating by direction.
+func MapSDKRulesToTerraform(ctx context.Context, sdkRules []sgmodels.SecurityGroupRule) (types.List, types.List, diag.Diagnostics) {
 	var diags diag.Diagnostics
-	var ingressRules []SecurityRuleModel
-	var egressRules []SecurityRuleModel
+	var ingressRules []resourcemodels.SecurityRuleModel
+	var egressRules []resourcemodels.SecurityRuleModel
 
 	for _, sdkRule := range sdkRules {
-		tfRule := SecurityRuleModel{
+		tfRule := resourcemodels.SecurityRuleModel{
 			Protocol:  types.StringValue(string(sdkRule.Protocol)),
 			PortRange: types.StringValue(formatPortRange(sdkRule.PortMin, sdkRule.PortMax)),
 		}
@@ -195,16 +199,16 @@ func formatPortRange(portMin, portMax int) string {
 	return fmt.Sprintf("%d-%d", portMin, portMax)
 }
 
-// reorderRulesToMatchPlan reorders API rules to match the order in the plan.
+// ReorderRulesToMatchPlan reorders API rules to match the order in the plan.
 // This prevents Terraform from detecting phantom changes due to API reordering.
-func reorderRulesToMatchPlan(ctx context.Context, planList types.List, apiList types.List) types.List {
+func ReorderRulesToMatchPlan(ctx context.Context, planList types.List, apiList types.List) types.List {
 	// If plan is null/unknown or has different length, return API list as-is
 	if planList.IsNull() || planList.IsUnknown() || apiList.IsNull() {
 		return apiList
 	}
 
-	var planRules []SecurityRuleModel
-	var apiRules []SecurityRuleModel
+	var planRules []resourcemodels.SecurityRuleModel
+	var apiRules []resourcemodels.SecurityRuleModel
 
 	planList.ElementsAs(ctx, &planRules, false)
 	apiList.ElementsAs(ctx, &apiRules, false)
@@ -215,7 +219,7 @@ func reorderRulesToMatchPlan(ctx context.Context, planList types.List, apiList t
 
 	// Create a map of API rules for quick lookup
 	// Key: protocol+portRange+cidr (using the non-null CIDR field)
-	apiRuleMap := make(map[string]SecurityRuleModel)
+	apiRuleMap := make(map[string]resourcemodels.SecurityRuleModel)
 	for _, rule := range apiRules {
 		var cidr string
 		if !rule.SourceCIDR.IsNull() && !rule.SourceCIDR.IsUnknown() {
@@ -228,7 +232,7 @@ func reorderRulesToMatchPlan(ctx context.Context, planList types.List, apiList t
 	}
 
 	// Reorder API rules to match plan order
-	var reorderedRules []SecurityRuleModel
+	var reorderedRules []resourcemodels.SecurityRuleModel
 	for _, planRule := range planRules {
 		var cidr string
 		if !planRule.SourceCIDR.IsNull() && !planRule.SourceCIDR.IsUnknown() {
@@ -261,7 +265,89 @@ func reorderRulesToMatchPlan(ctx context.Context, planList types.List, apiList t
 	return reorderedList
 }
 
-// stringPtr returns a pointer to the given string.
-func stringPtr(s string) *string {
-	return &s
+// MapSDKSecurityGroupToModel converts an SDK security group to the data source model.
+func MapSDKSecurityGroupToModel(sg sgmodels.SecurityGroup) (model.SecurityGroupDataModel, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	_model := model.SecurityGroupDataModel{
+		ID:          types.StringValue(sg.ID),
+		Name:        types.StringValue(sg.Name),
+		Description: types.StringValue(sg.Description),
+	}
+
+	// Map rules - initialize as empty slices to ensure they're never nil
+	type tmpRule struct {
+		model model.SecurityRuleModel
+		min   int
+		max   int
+	}
+
+	ingressTmp := make([]tmpRule, 0)
+	egressTmp := make([]tmpRule, 0)
+
+	for _, sdkRule := range sg.Rules {
+		rule := model.SecurityRuleModel{
+			Protocol:  types.StringValue(string(sdkRule.Protocol)),
+			PortRange: types.StringValue(formatPortRange(sdkRule.PortMin, sdkRule.PortMax)),
+		}
+
+		if sdkRule.Direction == sgmodels.DirectionIngress {
+			rule.SourceCIDR = types.StringValue(sdkRule.RemoteCIDR)
+			rule.DestinationCIDR = types.StringNull()
+			ingressTmp = append(ingressTmp, tmpRule{model: rule, min: sdkRule.PortMin, max: sdkRule.PortMax})
+		} else {
+			rule.SourceCIDR = types.StringNull()
+			rule.DestinationCIDR = types.StringValue(sdkRule.RemoteCIDR)
+			egressTmp = append(egressTmp, tmpRule{model: rule, min: sdkRule.PortMin, max: sdkRule.PortMax})
+		}
+	}
+
+	// Sort rules deterministically: by port min, then port max, then protocol, then cidr
+	sort.SliceStable(ingressTmp, func(i, j int) bool {
+		if ingressTmp[i].min != ingressTmp[j].min {
+			return ingressTmp[i].min < ingressTmp[j].min
+		}
+		if ingressTmp[i].max != ingressTmp[j].max {
+			return ingressTmp[i].max < ingressTmp[j].max
+		}
+		if ingressTmp[i].model.Protocol.ValueString() != ingressTmp[j].model.Protocol.ValueString() {
+			return ingressTmp[i].model.Protocol.ValueString() < ingressTmp[j].model.Protocol.ValueString()
+		}
+		return ingressTmp[i].model.SourceCIDR.ValueString() < ingressTmp[j].model.SourceCIDR.ValueString()
+	})
+
+	sort.SliceStable(egressTmp, func(i, j int) bool {
+		if egressTmp[i].min != egressTmp[j].min {
+			return egressTmp[i].min < egressTmp[j].min
+		}
+		if egressTmp[i].max != egressTmp[j].max {
+			return egressTmp[i].max < egressTmp[j].max
+		}
+		if egressTmp[i].model.Protocol.ValueString() != egressTmp[j].model.Protocol.ValueString() {
+			return egressTmp[i].model.Protocol.ValueString() < egressTmp[j].model.Protocol.ValueString()
+		}
+		return egressTmp[i].model.DestinationCIDR.ValueString() < egressTmp[j].model.DestinationCIDR.ValueString()
+	})
+
+	ingressRules := make([]model.SecurityRuleModel, 0, len(ingressTmp))
+	for _, t := range ingressTmp {
+		ingressRules = append(ingressRules, t.model)
+	}
+
+	egressRules := make([]model.SecurityRuleModel, 0, len(egressTmp))
+	for _, t := range egressTmp {
+		egressRules = append(egressRules, t.model)
+	}
+
+	_model.IngressRule = ingressRules
+	_model.EgressRule = egressRules
+
+	return _model, diags
+}
+
+// SortSecurityGroupsByID sorts a slice of SecurityGroupDataModel in-place by ID (ascending).
+func SortSecurityGroupsByID(sgs []model.SecurityGroupDataModel) {
+	sort.SliceStable(sgs, func(i, j int) bool {
+		return sgs[i].ID.ValueString() < sgs[j].ID.ValueString()
+	})
 }

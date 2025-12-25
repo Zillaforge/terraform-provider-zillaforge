@@ -6,15 +6,15 @@ package data
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	cloudsdk "github.com/Zillaforge/cloud-sdk"
 	sgmodels "github.com/Zillaforge/cloud-sdk/models/vps/securitygroups"
+	"github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/helper"
+	resourcemodel "github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/model"
+
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
-	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
@@ -29,30 +29,6 @@ func NewSecurityGroupsDataSource() datasource.DataSource {
 // SecurityGroupsDataSource defines the data source implementation.
 type SecurityGroupsDataSource struct {
 	client *cloudsdk.ProjectClient
-}
-
-// SecurityGroupsDataSourceModel describes the data source data model.
-type SecurityGroupsDataSourceModel struct {
-	ID             types.String             `tfsdk:"id"`
-	Name           types.String             `tfsdk:"name"`
-	SecurityGroups []SecurityGroupDataModel `tfsdk:"security_groups"`
-}
-
-// SecurityGroupDataModel represents a single security group in the results.
-type SecurityGroupDataModel struct {
-	ID          types.String        `tfsdk:"id"`
-	Name        types.String        `tfsdk:"name"`
-	Description types.String        `tfsdk:"description"`
-	IngressRule []SecurityRuleModel `tfsdk:"ingress_rule"`
-	EgressRule  []SecurityRuleModel `tfsdk:"egress_rule"`
-}
-
-// SecurityRuleModel represents a firewall rule (same as resource model).
-type SecurityRuleModel struct {
-	Protocol        types.String `tfsdk:"protocol"`
-	PortRange       types.String `tfsdk:"port_range"`
-	SourceCIDR      types.String `tfsdk:"source_cidr"`
-	DestinationCIDR types.String `tfsdk:"destination_cidr"`
 }
 
 func (d *SecurityGroupsDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -157,7 +133,7 @@ func (d *SecurityGroupsDataSource) Configure(ctx context.Context, req datasource
 }
 
 func (d *SecurityGroupsDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	var config SecurityGroupsDataSourceModel
+	var config resourcemodel.SecurityGroupsDataSourceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -174,7 +150,7 @@ func (d *SecurityGroupsDataSource) Read(ctx context.Context, req datasource.Read
 	}
 
 	vpsClient := d.client.VPS()
-	var securityGroups []SecurityGroupDataModel
+	var securityGroups []resourcemodel.SecurityGroupDataModel
 
 	// Filter by ID
 	if !config.ID.IsNull() {
@@ -192,13 +168,13 @@ func (d *SecurityGroupsDataSource) Read(ctx context.Context, req datasource.Read
 		}
 
 		sg := securityGroupResource.SecurityGroup
-		sgModel, diags := mapSDKSecurityGroupToModel(ctx, *sg)
+		sgModel, diags := helper.MapSDKSecurityGroupToModel(*sg)
 		resp.Diagnostics.Append(diags...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
 
-		securityGroups = []SecurityGroupDataModel{sgModel}
+		securityGroups = []resourcemodel.SecurityGroupDataModel{sgModel}
 	} else if !config.Name.IsNull() {
 		// Filter by name
 		tflog.Debug(ctx, "Querying security groups by name", map[string]interface{}{
@@ -220,7 +196,7 @@ func (d *SecurityGroupsDataSource) Read(ctx context.Context, req datasource.Read
 		// Client-side name filtering
 		for _, sg := range allGroups {
 			if sg.SecurityGroup.Name == config.Name.ValueString() {
-				sgModel, diags := mapSDKSecurityGroupToModel(ctx, *sg.SecurityGroup)
+				sgModel, diags := helper.MapSDKSecurityGroupToModel(*sg.SecurityGroup)
 				resp.Diagnostics.Append(diags...)
 				if resp.Diagnostics.HasError() {
 					return
@@ -250,7 +226,7 @@ func (d *SecurityGroupsDataSource) Read(ctx context.Context, req datasource.Read
 		}
 
 		for _, sg := range allGroups {
-			sgModel, diags := mapSDKSecurityGroupToModel(ctx, *sg.SecurityGroup)
+			sgModel, diags := helper.MapSDKSecurityGroupToModel(*sg.SecurityGroup)
 			resp.Diagnostics.Append(diags...)
 			if resp.Diagnostics.HasError() {
 				return
@@ -264,113 +240,10 @@ func (d *SecurityGroupsDataSource) Read(ctx context.Context, req datasource.Read
 	}
 
 	// Ensure deterministic order by ID
-	sortSecurityGroupsByID(securityGroups)
+	helper.SortSecurityGroupsByID(securityGroups)
 
 	// Set state
 	config.SecurityGroups = securityGroups
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
-}
-
-// mapSDKSecurityGroupToModel converts an SDK security group to the data source model.
-//
-//nolint:unparam // ctx parameter kept for consistency with other mapper functions
-func mapSDKSecurityGroupToModel(ctx context.Context, sg sgmodels.SecurityGroup) (SecurityGroupDataModel, diag.Diagnostics) {
-	var diags diag.Diagnostics
-
-	model := SecurityGroupDataModel{
-		ID:          types.StringValue(sg.ID),
-		Name:        types.StringValue(sg.Name),
-		Description: types.StringValue(sg.Description),
-	}
-
-	// Map rules - initialize as empty slices to ensure they're never nil
-	type tmpRule struct {
-		model SecurityRuleModel
-		min   int
-		max   int
-	}
-
-	ingressTmp := make([]tmpRule, 0)
-	egressTmp := make([]tmpRule, 0)
-
-	for _, sdkRule := range sg.Rules {
-		rule := SecurityRuleModel{
-			Protocol:  types.StringValue(string(sdkRule.Protocol)),
-			PortRange: types.StringValue(formatPortRange(sdkRule.PortMin, sdkRule.PortMax)),
-		}
-
-		if sdkRule.Direction == sgmodels.DirectionIngress {
-			rule.SourceCIDR = types.StringValue(sdkRule.RemoteCIDR)
-			rule.DestinationCIDR = types.StringNull()
-			ingressTmp = append(ingressTmp, tmpRule{model: rule, min: sdkRule.PortMin, max: sdkRule.PortMax})
-		} else {
-			rule.SourceCIDR = types.StringNull()
-			rule.DestinationCIDR = types.StringValue(sdkRule.RemoteCIDR)
-			egressTmp = append(egressTmp, tmpRule{model: rule, min: sdkRule.PortMin, max: sdkRule.PortMax})
-		}
-	}
-
-	// Sort rules deterministically: by port min, then port max, then protocol, then cidr
-	sort.SliceStable(ingressTmp, func(i, j int) bool {
-		if ingressTmp[i].min != ingressTmp[j].min {
-			return ingressTmp[i].min < ingressTmp[j].min
-		}
-		if ingressTmp[i].max != ingressTmp[j].max {
-			return ingressTmp[i].max < ingressTmp[j].max
-		}
-		if ingressTmp[i].model.Protocol.ValueString() != ingressTmp[j].model.Protocol.ValueString() {
-			return ingressTmp[i].model.Protocol.ValueString() < ingressTmp[j].model.Protocol.ValueString()
-		}
-		return ingressTmp[i].model.SourceCIDR.ValueString() < ingressTmp[j].model.SourceCIDR.ValueString()
-	})
-
-	sort.SliceStable(egressTmp, func(i, j int) bool {
-		if egressTmp[i].min != egressTmp[j].min {
-			return egressTmp[i].min < egressTmp[j].min
-		}
-		if egressTmp[i].max != egressTmp[j].max {
-			return egressTmp[i].max < egressTmp[j].max
-		}
-		if egressTmp[i].model.Protocol.ValueString() != egressTmp[j].model.Protocol.ValueString() {
-			return egressTmp[i].model.Protocol.ValueString() < egressTmp[j].model.Protocol.ValueString()
-		}
-		return egressTmp[i].model.DestinationCIDR.ValueString() < egressTmp[j].model.DestinationCIDR.ValueString()
-	})
-
-	ingressRules := make([]SecurityRuleModel, 0, len(ingressTmp))
-	for _, t := range ingressTmp {
-		ingressRules = append(ingressRules, t.model)
-	}
-
-	egressRules := make([]SecurityRuleModel, 0, len(egressTmp))
-	for _, t := range egressTmp {
-		egressRules = append(egressRules, t.model)
-	}
-
-	model.IngressRule = ingressRules
-	model.EgressRule = egressRules
-
-	return model, diags
-}
-
-// formatPortRange converts min/max port integers to string format.
-func formatPortRange(portMin, portMax int) string {
-	if portMin == 0 && portMax == 0 {
-		return "all"
-	}
-	if portMin == 1 && portMax == 65535 {
-		return "all"
-	}
-	if portMin == portMax {
-		return fmt.Sprintf("%d", portMin)
-	}
-	return fmt.Sprintf("%d-%d", portMin, portMax)
-}
-
-// sortSecurityGroupsByID sorts a slice of SecurityGroupDataModel in-place by ID (ascending).
-func sortSecurityGroupsByID(sgs []SecurityGroupDataModel) {
-	sort.SliceStable(sgs, func(i, j int) bool {
-		return sgs[i].ID.ValueString() < sgs[j].ID.ValueString()
-	})
 }

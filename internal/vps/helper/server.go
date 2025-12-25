@@ -1,7 +1,7 @@
 // Copyright (c) HashiCorp, Inc.
 // SPDX-License-Identifier: MPL-2.0
 
-package resource
+package helper
 
 import (
 	"context"
@@ -21,8 +21,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-// buildCreateRequest maps Terraform plan to cloud-SDK ServerCreateRequest.
-func buildCreateRequest(ctx context.Context, plan resourcemodels.ServerResourceModel) (*servermodels.ServerCreateRequest, diag.Diagnostics) {
+// BuildServerCreateRequest maps Terraform plan to cloud-SDK ServerCreateRequest.
+func BuildServerCreateRequest(ctx context.Context, plan resourcemodels.ServerResourceModel) (*servermodels.ServerCreateRequest, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	// Map network_attachment blocks
@@ -84,9 +84,9 @@ func buildCreateRequest(ctx context.Context, plan resourcemodels.ServerResourceM
 	return req, diags
 }
 
-// buildUpdateRequestWithNetworkChanges maps changed attributes from Terraform plan to cloud-SDK ServerUpdateRequest.
+// BuildServerUpdateRequest maps changed attributes from Terraform plan to cloud-SDK ServerUpdateRequest.
 // Returns the update context with server changes and network changes, and diagnostics.
-func buildUpdateRequestWithNetworkChanges(ctx context.Context, plan, state resourcemodels.ServerResourceModel) (*resourcemodels.UpdateContext, diag.Diagnostics) {
+func BuildServerUpdateRequest(ctx context.Context, plan, state resourcemodels.ServerResourceModel) (*resourcemodels.UpdateContext, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	updateCtx := &resourcemodels.UpdateContext{
 		ServerUpdate:   &servermodels.ServerUpdateRequest{},
@@ -229,8 +229,8 @@ func buildUpdateRequestWithNetworkChanges(ctx context.Context, plan, state resou
 	return updateCtx, diags
 }
 
-// mapServerToState maps cloud-SDK ServerResource to Terraform state.
-func mapServerToState(ctx context.Context, serverRes *serversdk.ServerResource) (resourcemodels.ServerResourceModel, diag.Diagnostics) {
+// MapServerToState maps cloud-SDK ServerResource to Terraform state.
+func MapServerToState(ctx context.Context, serverRes *serversdk.ServerResource) (resourcemodels.ServerResourceModel, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	var state resourcemodels.ServerResourceModel
 
@@ -350,8 +350,8 @@ func mapServerToState(ctx context.Context, serverRes *serversdk.ServerResource) 
 	return state, diags
 }
 
-// waitForServerActive waits for the server to reach "active" using the SDK-provided waiter helper.
-func waitForServerActive(ctx context.Context, serversClient *serversdk.Client, serverID string, timeout time.Duration) (*serversdk.ServerResource, error) {
+// WaitForServerActive waits for the server to reach "active" using the SDK-provided waiter helper.
+func WaitForServerActive(ctx context.Context, serversClient *serversdk.Client, serverID string, timeout time.Duration) (*serversdk.ServerResource, error) {
 	// Use context with timeout so the SDK waiter respects the configured duration.
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -368,8 +368,8 @@ func waitForServerActive(ctx context.Context, serversClient *serversdk.Client, s
 	return serversClient.Get(ctx, serverID)
 }
 
-// waitForServerDeleted polls until server is deleted or timeout.
-func waitForServerDeleted(ctx context.Context, client interface {
+// WaitForServerDeleted polls until server is deleted or timeout.
+func WaitForServerDeleted(ctx context.Context, client interface {
 	Get(context.Context, string) (*serversdk.ServerResource, error)
 }, serverID string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)

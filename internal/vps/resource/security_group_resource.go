@@ -11,6 +11,9 @@ import (
 
 	cloudsdk "github.com/Zillaforge/cloud-sdk"
 	sgmodels "github.com/Zillaforge/cloud-sdk/models/vps/securitygroups"
+	"github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/helper"
+	resourcemodels "github.com/Zillaforge/terraform-provider-zillaforge/internal/vps/model"
+
 	"github.com/Zillaforge/terraform-provider-zillaforge/internal/validators"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -33,23 +36,6 @@ func NewSecurityGroupResource() resource.Resource {
 // SecurityGroupResource defines the security group resource implementation.
 type SecurityGroupResource struct {
 	client *cloudsdk.ProjectClient
-}
-
-// SecurityGroupResourceModel describes the resource data model.
-type SecurityGroupResourceModel struct {
-	ID          types.String `tfsdk:"id"`
-	Name        types.String `tfsdk:"name"`
-	Description types.String `tfsdk:"description"`
-	IngressRule types.List   `tfsdk:"ingress_rule"`
-	EgressRule  types.List   `tfsdk:"egress_rule"`
-}
-
-// SecurityRuleModel represents a firewall rule in the schema.
-type SecurityRuleModel struct {
-	Protocol        types.String `tfsdk:"protocol"`
-	PortRange       types.String `tfsdk:"port_range"`
-	SourceCIDR      types.String `tfsdk:"source_cidr"`      // For ingress only
-	DestinationCIDR types.String `tfsdk:"destination_cidr"` // For egress only
 }
 
 func (r *SecurityGroupResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -164,7 +150,7 @@ func (r *SecurityGroupResource) Configure(ctx context.Context, req resource.Conf
 }
 
 func (r *SecurityGroupResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan SecurityGroupResourceModel
+	var plan resourcemodels.SecurityGroupResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -175,7 +161,7 @@ func (r *SecurityGroupResource) Create(ctx context.Context, req resource.CreateR
 	})
 
 	// Build rule list from ingress and egress
-	rules, diags := buildSecurityGroupRules(ctx, plan)
+	rules, diags := helper.BuildSecurityGroupRules(ctx, plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -210,15 +196,15 @@ func (r *SecurityGroupResource) Create(ctx context.Context, req resource.CreateR
 	}
 
 	// Map rules from API response back to state
-	apiIngressRules, apiEgressRules, diags := mapSDKRulesToTerraform(ctx, securityGroup.Rules)
+	apiIngressRules, apiEgressRules, diags := helper.MapSDKRulesToTerraform(ctx, securityGroup.Rules)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	// Reorder API rules to match plan order
-	plan.IngressRule = reorderRulesToMatchPlan(ctx, plan.IngressRule, apiIngressRules)
-	plan.EgressRule = reorderRulesToMatchPlan(ctx, plan.EgressRule, apiEgressRules)
+	plan.IngressRule = helper.ReorderRulesToMatchPlan(ctx, plan.IngressRule, apiIngressRules)
+	plan.EgressRule = helper.ReorderRulesToMatchPlan(ctx, plan.EgressRule, apiEgressRules)
 
 	tflog.Debug(ctx, "Created security group", map[string]interface{}{
 		"id":   securityGroup.ID,
@@ -229,7 +215,7 @@ func (r *SecurityGroupResource) Create(ctx context.Context, req resource.CreateR
 }
 
 func (r *SecurityGroupResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var state SecurityGroupResourceModel
+	var state resourcemodels.SecurityGroupResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -266,22 +252,22 @@ func (r *SecurityGroupResource) Read(ctx context.Context, req resource.ReadReque
 	}
 
 	// Map rules from API response
-	apiIngressRules, apiEgressRules, diags := mapSDKRulesToTerraform(ctx, securityGroup.Rules)
+	apiIngressRules, apiEgressRules, diags := helper.MapSDKRulesToTerraform(ctx, securityGroup.Rules)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	// Reorder API rules to match current state order to prevent phantom changes
-	state.IngressRule = reorderRulesToMatchPlan(ctx, state.IngressRule, apiIngressRules)
-	state.EgressRule = reorderRulesToMatchPlan(ctx, state.EgressRule, apiEgressRules)
+	state.IngressRule = helper.ReorderRulesToMatchPlan(ctx, state.IngressRule, apiIngressRules)
+	state.EgressRule = helper.ReorderRulesToMatchPlan(ctx, state.EgressRule, apiEgressRules)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
 func (r *SecurityGroupResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan SecurityGroupResourceModel
-	var state SecurityGroupResourceModel
+	var plan resourcemodels.SecurityGroupResourceModel
+	var state resourcemodels.SecurityGroupResourceModel
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -298,7 +284,7 @@ func (r *SecurityGroupResource) Update(ctx context.Context, req resource.UpdateR
 	// Update description if changed
 	if !plan.Description.Equal(state.Description) {
 		updateReq := sgmodels.SecurityGroupUpdateRequest{
-			Description: stringPtr(plan.Description.ValueString()),
+			Description: plan.Description.ValueStringPointer(),
 		}
 
 		_, err := vpsClient.SecurityGroups().Update(ctx, state.ID.ValueString(), updateReq)
@@ -338,7 +324,7 @@ func (r *SecurityGroupResource) Update(ctx context.Context, req resource.UpdateR
 	}
 
 	// Add new rules
-	rules, diags := buildSecurityGroupRules(ctx, plan)
+	rules, diags := helper.BuildSecurityGroupRules(ctx, plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -378,21 +364,21 @@ func (r *SecurityGroupResource) Update(ctx context.Context, req resource.UpdateR
 
 	// We need to map the rules from the API response but maintain the order from the plan
 	// Get rules from API
-	apiIngressRules, apiEgressRules, diags := mapSDKRulesToTerraform(ctx, updatedGroup.Rules)
+	apiIngressRules, apiEgressRules, diags := helper.MapSDKRulesToTerraform(ctx, updatedGroup.Rules)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	// Reorder API rules to match plan order if possible
-	plan.IngressRule = reorderRulesToMatchPlan(ctx, plan.IngressRule, apiIngressRules)
-	plan.EgressRule = reorderRulesToMatchPlan(ctx, plan.EgressRule, apiEgressRules)
+	plan.IngressRule = helper.ReorderRulesToMatchPlan(ctx, plan.IngressRule, apiIngressRules)
+	plan.EgressRule = helper.ReorderRulesToMatchPlan(ctx, plan.EgressRule, apiEgressRules)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
 func (r *SecurityGroupResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var state SecurityGroupResourceModel
+	var state resourcemodels.SecurityGroupResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -482,7 +468,7 @@ func (r *SecurityGroupResource) ImportState(ctx context.Context, req resource.Im
 
 	// T061: Call Read() logic to populate state after import
 	// Build state from API response
-	var state SecurityGroupResourceModel
+	var state resourcemodels.SecurityGroupResourceModel
 	state.ID = types.StringValue(securityGroup.ID)
 	state.Name = types.StringValue(securityGroup.Name)
 	if securityGroup.Description != "" {
@@ -492,7 +478,7 @@ func (r *SecurityGroupResource) ImportState(ctx context.Context, req resource.Im
 	}
 
 	// Map rules from API
-	apiIngressRules, apiEgressRules, diags := mapSDKRulesToTerraform(ctx, securityGroup.Rules)
+	apiIngressRules, apiEgressRules, diags := helper.MapSDKRulesToTerraform(ctx, securityGroup.Rules)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
