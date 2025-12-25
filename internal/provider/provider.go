@@ -234,6 +234,7 @@ func (p *ZillaforgeProvider) Configure(ctx context.Context, req provider.Configu
 
 func (p *ZillaforgeProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
+		vps_resource.NewFloatingIPResource,
 		vps_resource.NewKeypairResource,
 		vps_resource.NewSecurityGroupResource,
 		vps_resource.NewServerResource,
@@ -247,6 +248,7 @@ func (p *ZillaforgeProvider) EphemeralResources(ctx context.Context) []func() ep
 func (p *ZillaforgeProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		vps_data.NewFlavorDataSource,
+		vps_data.NewFloatingIPsDataSource,
 		vps_data.NewNetworkDataSource,
 		vps_data.NewKeypairDataSource,
 		vps_data.NewSecurityGroupsDataSource,

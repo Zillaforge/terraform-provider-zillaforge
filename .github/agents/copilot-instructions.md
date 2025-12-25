@@ -25,9 +25,9 @@ tests/
 Go 1.22.4: Follow standard conventions
 
 ## Recent Changes
+- 007-floating-ip-resource: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 - 006-server-resource: Added Go 1.22.4
 - 005-tag-data-source: Added Go 1.22.4
-- 004-security-group-data-resource: Added Go 1.22.4
 
 
 <!-- MANUAL ADDITIONS START -->

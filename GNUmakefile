@@ -40,11 +40,14 @@ coverage: testacc
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
-verification_apply:
+
+verification_plan:
 	terraform -chdir=./examples/verification plan
-	terraform -chdir=./examples/verification apply
+
+verification_apply:
+	terraform -chdir=./examples/verification apply -auto-approve
 
 verification_destroy:
-	terraform -chdir=./examples/verification destroy
+	terraform -chdir=./examples/verification destroy -auto-approve
 
-.PHONY: fmt lint test testacc build install generate verification_apply verification_destroy
+.PHONY: fmt lint test testacc build install generate verification_plan verification_apply verification_destroy
