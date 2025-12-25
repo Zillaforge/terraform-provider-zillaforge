@@ -40,6 +40,8 @@ type NetworkAttachmentModel struct {
 	IPAddress        types.String `tfsdk:"ip_address"`
 	Primary          types.Bool   `tfsdk:"primary"`
 	SecurityGroupIDs types.List   `tfsdk:"security_group_ids"` // List of types.String
+	FloatingIPID     types.String `tfsdk:"floating_ip_id"`     // Optional: UUID of floating IP to associate
+	FloatingIP       types.String `tfsdk:"floating_ip"`        // Computed: Actual IP address of associated floating IP
 }
 
 // TimeoutsModel for configurable operation timeouts.

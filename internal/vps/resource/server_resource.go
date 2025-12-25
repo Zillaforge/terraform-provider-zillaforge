@@ -98,6 +98,20 @@ func (r *ServerResource) Schema(ctx context.Context, req resource.SchemaRequest,
 							Optional:            true,
 							ElementType:         types.StringType,
 						},
+						"floating_ip_id": schema.StringAttribute{
+							MarkdownDescription: "UUID of the floating IP to associate with this network interface. When specified, the floating IP will be associated with this network attachment. Remove this attribute or set to null to disassociate the floating IP. Note: The floating IP must exist and not be associated with another server.",
+							Optional:            true,
+							Validators: []validator.String{
+								validators.UUIDValidator(),
+							},
+						},
+						"floating_ip": schema.StringAttribute{
+							MarkdownDescription: "The public IP address of the floating IP associated with this network interface. This is a read-only attribute that displays the IP address corresponding to floating_ip_id. Empty when no floating IP is associated.",
+							Computed:            true,
+							PlanModifiers: []planmodifier.String{
+								modifiers.FloatingIPPreserveState(),
+							},
+						},
 					},
 				},
 			},
@@ -325,6 +339,27 @@ func (r *ServerResource) Create(ctx context.Context, req resource.CreateRequest,
 			)
 			return
 		}
+
+		// Associate floating IPs after server is ACTIVE (NICs ready)
+		var planNetworkAttachments []resourcemodels.NetworkAttachmentModel
+		resp.Diagnostics.Append(plan.NetworkAttachment.ElementsAs(ctx, &planNetworkAttachments, false)...)
+		if !resp.Diagnostics.HasError() {
+			resp.Diagnostics.Append(helper.AssociateFloatingIPsForServer(ctx, serverRes, planNetworkAttachments)...)
+			if resp.Diagnostics.HasError() {
+				return
+			}
+
+			// Refresh server state after floating IP association to get updated NIC information
+			var err error
+			serverRes, err = vpsClient.Servers().Get(ctx, serverRes.Server.ID)
+			if err != nil {
+				resp.Diagnostics.AddError(
+					"Failed to refresh server after floating IP association",
+					fmt.Sprintf("Could not retrieve updated server state: %s", err.Error()),
+				)
+				return
+			}
+		}
 	}
 
 	// Map response to state
@@ -353,6 +388,8 @@ func (r *ServerResource) Create(ctx context.Context, req resource.CreateRequest,
 				"ip_address":         types.StringType,
 				"primary":            types.BoolType,
 				"security_group_ids": types.ListType{ElemType: types.StringType},
+				"floating_ip_id":     types.StringType,
+				"floating_ip":        types.StringType,
 			}
 
 			ordered := make([]attr.Value, 0, len(nics))
@@ -384,11 +421,20 @@ func (r *ServerResource) Create(ctx context.Context, req resource.CreateRequest,
 					ipAddress = types.StringValue(nic.Addresses[0])
 				}
 
+				// Extract floating IP information if associated
+				floatingIPID := p.FloatingIPID
+				floatingIPAddress := types.StringNull()
+				if nic != nil && nic.FloatingIP != nil {
+					floatingIPAddress = types.StringValue(nic.FloatingIP.Address)
+				}
+
 				attObj, d := types.ObjectValue(networkAttachmentAttrTypes, map[string]attr.Value{
 					"network_id":         types.StringValue(nid),
 					"ip_address":         ipAddress,
 					"primary":            types.BoolValue(p.Primary.ValueBool()),
 					"security_group_ids": sgList,
+					"floating_ip_id":     floatingIPID,
+					"floating_ip":        floatingIPAddress,
 				})
 				diags.Append(d...)
 				ordered = append(ordered, attObj)
@@ -423,11 +469,21 @@ func (r *ServerResource) Create(ctx context.Context, req resource.CreateRequest,
 					ipAddress = types.StringValue(nic.Addresses[0])
 				}
 
+				// Extract floating IP information if associated
+				floatingIPID := types.StringNull()
+				floatingIPAddress := types.StringNull()
+				if nic.FloatingIP != nil {
+					floatingIPID = types.StringValue(nic.FloatingIP.ID)
+					floatingIPAddress = types.StringValue(nic.FloatingIP.Address)
+				}
+
 				attObj, d := types.ObjectValue(networkAttachmentAttrTypes, map[string]attr.Value{
 					"network_id":         types.StringValue(nic.NetworkID),
 					"ip_address":         ipAddress,
 					"primary":            types.BoolValue(false),
 					"security_group_ids": sgList,
+					"floating_ip_id":     floatingIPID,
+					"floating_ip":        floatingIPAddress,
 				})
 				diags.Append(d...)
 				ordered = append(ordered, attObj)
@@ -505,6 +561,8 @@ func (r *ServerResource) Read(ctx context.Context, req resource.ReadRequest, res
 				"ip_address":         types.StringType,
 				"primary":            types.BoolType,
 				"security_group_ids": types.ListType{ElemType: types.StringType},
+				"floating_ip_id":     types.StringType,
+				"floating_ip":        types.StringType,
 			}
 
 			ordered := make([]attr.Value, 0, len(apiNetworkAttachments))
@@ -569,6 +627,8 @@ func (r *ServerResource) Read(ctx context.Context, req resource.ReadRequest, res
 						"ip_address":         ipAddress,
 						"primary":            types.BoolValue(nic.Primary.ValueBool()),
 						"security_group_ids": sgList,
+						"floating_ip_id":     nic.FloatingIPID,
+						"floating_ip":        nic.FloatingIP,
 					})
 					resp.Diagnostics.Append(d...)
 					ordered = append(ordered, attObj)
@@ -613,6 +673,8 @@ func (r *ServerResource) Read(ctx context.Context, req resource.ReadRequest, res
 						"ip_address":         ipAddress,
 						"primary":            types.BoolValue(nic.Primary.ValueBool()),
 						"security_group_ids": sgList,
+						"floating_ip_id":     nic.FloatingIPID,
+						"floating_ip":        nic.FloatingIP,
 					})
 					resp.Diagnostics.Append(d...)
 					ordered = append(ordered, attObj)
@@ -657,8 +719,28 @@ func (r *ServerResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		"id": state.ID.ValueString(),
 	})
 
-	// Call API
+	// Get VPS client for operations
 	vpsClient := r.client.VPS()
+
+	// Disassociate all floating IPs before deletion (T025)
+	var networkAttachments []resourcemodels.NetworkAttachmentModel
+	resp.Diagnostics.Append(state.NetworkAttachment.ElementsAs(ctx, &networkAttachments, false)...)
+	if !resp.Diagnostics.HasError() {
+		floatingIPIDs := make([]string, 0)
+		for _, attachment := range networkAttachments {
+			if !attachment.FloatingIPID.IsNull() && !attachment.FloatingIPID.IsUnknown() {
+				floatingIPIDs = append(floatingIPIDs, attachment.FloatingIPID.ValueString())
+			}
+		}
+		if len(floatingIPIDs) > 0 {
+			resp.Diagnostics.Append(helper.DisassociateFloatingIPsForServer(ctx, vpsClient.FloatingIPs(), floatingIPIDs)...)
+			if resp.Diagnostics.HasError() {
+				return
+			}
+		}
+	}
+
+	// Call API
 	err := vpsClient.Servers().Delete(ctx, state.ID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -948,6 +1030,105 @@ func (r *ServerResource) Update(ctx context.Context, req resource.UpdateRequest,
 			return
 		}
 
+		// Handle floating IP changes (T024: associate/disassociate based on plan vs state)
+		var planNetworkAttachments []resourcemodels.NetworkAttachmentModel
+		var stateNetworkAttachments []resourcemodels.NetworkAttachmentModel
+		resp.Diagnostics.Append(plan.NetworkAttachment.ElementsAs(ctx, &planNetworkAttachments, false)...)
+		resp.Diagnostics.Append(state.NetworkAttachment.ElementsAs(ctx, &stateNetworkAttachments, false)...)
+
+		if !resp.Diagnostics.HasError() {
+			// Build maps for easy comparison
+			planFIPsByNetwork := make(map[string]string)
+			stateFIPsByNetwork := make(map[string]string)
+
+			for _, att := range planNetworkAttachments {
+				if !att.FloatingIPID.IsNull() && !att.FloatingIPID.IsUnknown() {
+					planFIPsByNetwork[att.NetworkID.ValueString()] = att.FloatingIPID.ValueString()
+				}
+			}
+
+			for _, att := range stateNetworkAttachments {
+				if !att.FloatingIPID.IsNull() && !att.FloatingIPID.IsUnknown() {
+					stateFIPsByNetwork[att.NetworkID.ValueString()] = att.FloatingIPID.ValueString()
+				}
+			}
+
+			// Find floating IPs to disassociate (in state but not in plan, or changed)
+			floatingIPsToDisassociate := make([]string, 0)
+			for networkID, stateFIPID := range stateFIPsByNetwork {
+				planFIPID, existsInPlan := planFIPsByNetwork[networkID]
+				if !existsInPlan {
+					// Floating IP removed from this network
+					floatingIPsToDisassociate = append(floatingIPsToDisassociate, stateFIPID)
+				} else if planFIPID != stateFIPID {
+					// Floating IP changed for this network - disassociate old one
+					floatingIPsToDisassociate = append(floatingIPsToDisassociate, stateFIPID)
+				}
+			}
+
+			// Disassociate removed/changed floating IPs
+			if len(floatingIPsToDisassociate) > 0 {
+				tflog.Debug(ctx, "Disassociating floating IPs during update", map[string]interface{}{
+					"count": len(floatingIPsToDisassociate),
+				})
+				resp.Diagnostics.Append(helper.DisassociateFloatingIPsForServer(ctx, vpsClient.FloatingIPs(), floatingIPsToDisassociate)...)
+				if resp.Diagnostics.HasError() {
+					return
+				}
+
+				// Wait briefly for disassociation to propagate through the cloud API
+				time.Sleep(3 * time.Second)
+
+				// Refresh server state after disassociation to get updated NIC information
+				serverRes, err = vpsClient.Servers().Get(ctx, serverRes.Server.ID)
+				if err != nil {
+					resp.Diagnostics.AddError(
+						"Failed to refresh server after floating IP disassociation",
+						fmt.Sprintf("Could not retrieve updated server state: %s", err.Error()),
+					)
+					return
+				}
+			}
+
+			// Find floating IPs to associate (in plan but not in state, or changed)
+			floatingIPsToAssociate := make([]resourcemodels.NetworkAttachmentModel, 0)
+			for _, planAtt := range planNetworkAttachments {
+				if planAtt.FloatingIPID.IsNull() || planAtt.FloatingIPID.IsUnknown() {
+					continue
+				}
+
+				networkID := planAtt.NetworkID.ValueString()
+				planFIPID := planAtt.FloatingIPID.ValueString()
+				stateFIPID, existsInState := stateFIPsByNetwork[networkID]
+
+				if !existsInState || stateFIPID != planFIPID {
+					// New floating IP or changed floating IP for this network
+					floatingIPsToAssociate = append(floatingIPsToAssociate, planAtt)
+				}
+			}
+
+			// Associate new/changed floating IPs
+			if len(floatingIPsToAssociate) > 0 {
+				tflog.Debug(ctx, "Associating floating IPs during update", map[string]interface{}{
+					"count": len(floatingIPsToAssociate),
+				})
+				resp.Diagnostics.Append(helper.AssociateFloatingIPsForServer(ctx, serverRes, floatingIPsToAssociate)...)
+				if resp.Diagnostics.HasError() {
+					return
+				}
+
+				// Refresh server state after floating IP association to get updated NIC information
+				serverRes, err = vpsClient.Servers().Get(ctx, serverRes.Server.ID)
+				if err != nil {
+					resp.Diagnostics.AddError(
+						"Failed to refresh server after floating IP association",
+						fmt.Sprintf("Could not retrieve updated server state: %s", err.Error()),
+					)
+					return
+				}
+			}
+		}
+
 		// Map updated server state
 		newState, diags := helper.MapServerToState(ctx, serverRes)
 		resp.Diagnostics.Append(diags...)
@@ -957,9 +1138,8 @@ func (r *ServerResource) Update(ctx context.Context, req resource.UpdateRequest,
 
 		// Reorder network_attachment to match plan order (to avoid spurious diffs)
 		// This is critical after adding/removing NICs to ensure computed fields (IP addresses) are correct
-		var planNetworkAttachments []resourcemodels.NetworkAttachmentModel
-		planDiags := plan.NetworkAttachment.ElementsAs(ctx, &planNetworkAttachments, false)
-		if len(planDiags) == 0 {
+		// Note: planNetworkAttachments already extracted earlier for floating IP change detection
+		if len(planNetworkAttachments) > 0 {
 			// Fetch fresh NICs
 			nics, err := serverRes.NICs().List(ctx)
 			if err == nil {
@@ -973,6 +1153,8 @@ func (r *ServerResource) Update(ctx context.Context, req resource.UpdateRequest,
 					"ip_address":         types.StringType,
 					"primary":            types.BoolType,
 					"security_group_ids": types.ListType{ElemType: types.StringType},
+					"floating_ip_id":     types.StringType,
+					"floating_ip":        types.StringType,
 				}
 
 				ordered := make([]attr.Value, 0, len(planNetworkAttachments))
@@ -1010,11 +1192,21 @@ func (r *ServerResource) Update(ctx context.Context, req resource.UpdateRequest,
 						ipAddress = types.StringValue(nic.Addresses[0])
 					}
 
+					// Extract floating IP info from NIC (computed from actual server state)
+					floatingIPID := types.StringNull()
+					floatingIPAddress := types.StringNull()
+					if nic.FloatingIP != nil {
+						floatingIPID = types.StringValue(nic.FloatingIP.ID)
+						floatingIPAddress = types.StringValue(nic.FloatingIP.Address)
+					}
+
 					attObj, d := types.ObjectValue(networkAttachmentAttrTypes, map[string]attr.Value{
 						"network_id":         types.StringValue(nid),
 						"ip_address":         ipAddress,
 						"primary":            types.BoolValue(p.Primary.ValueBool()),
 						"security_group_ids": sgList,
+						"floating_ip_id":     floatingIPID,
+						"floating_ip":        floatingIPAddress,
 					})
 					diags.Append(d...)
 					ordered = append(ordered, attObj)

@@ -16,7 +16,7 @@
         * [x] Network 
         * [x] SecurityGroup
 * [x] Import
-* [ ] Assocaite/Disassociate FIP
+* [x] Assocaite/Disassociate FIP
 * [ ] Timeouts has no function
 * [ ] Resize
 * [ ] LifeCycle Management (Power On/Off)

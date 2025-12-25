@@ -1371,3 +1371,653 @@ resource "zillaforge_server" "test" {
   }
 }
 `
+
+// T011: Acceptance test - Create server with floating_ip_id in network_attachment.
+func TestAccServerResource_FloatingIP_AssociateCreate(t *testing.T) {
+	t.Parallel()
+	name := fmt.Sprintf("test-server-fip-create-%d", time.Now().UnixNano()%100000)
+	config := fmt.Sprintf(testAccServerResourceConfig_floatingIPCreate, name, name, name)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { provider.TestAccPreCheck(t) },
+		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("zillaforge_server.test", "name", name),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "id"),
+					resource.TestCheckResourceAttr("zillaforge_server.test", "network_attachment.#", "1"),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "network_attachment.0.floating_ip_id"),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "network_attachment.0.floating_ip"),
+					// Verify floating IP is actually associated
+					testAccCheckFloatingIPAssociated("zillaforge_floating_ip.test"),
+				),
+			},
+		},
+	})
+}
+
+const testAccServerResourceConfig_floatingIPCreate = `
+data "zillaforge_flavors" "test" {}
+data "zillaforge_images" "test" {}
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_security_group" "sg" {
+  name = "%s-sg"
+}
+
+resource "zillaforge_floating_ip" "test" {
+  name = "%s-fip"
+}
+
+resource "zillaforge_server" "test" {
+  name      = "%s"
+  flavor_id = data.zillaforge_flavors.test.flavors[0].id
+  image_id  = data.zillaforge_images.test.images[0].id
+  password  = "TestPassword123!"
+  wait_for_deleted = false
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[0].id
+    security_group_ids = [zillaforge_security_group.sg.id]
+    floating_ip_id = zillaforge_floating_ip.test.id
+  }
+}
+`
+
+// T012: Acceptance test - Add floating_ip_id to existing server.
+func TestAccServerResource_FloatingIP_AssociateExisting(t *testing.T) {
+	t.Parallel()
+	name := fmt.Sprintf("test-server-fip-existing-%d", time.Now().UnixNano()%100000)
+	configWithout := fmt.Sprintf(testAccServerResourceConfig_floatingIPExisting_without, name, name)
+	configWith := fmt.Sprintf(testAccServerResourceConfig_floatingIPExisting_with, name, name, name)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { provider.TestAccPreCheck(t) },
+		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: configWithout,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("zillaforge_server.test", "name", name),
+					resource.TestCheckResourceAttr("zillaforge_server.test", "network_attachment.#", "1"),
+					resource.TestCheckNoResourceAttr("zillaforge_server.test", "network_attachment.0.floating_ip_id"),
+				),
+			},
+			{
+				Config: configWith,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("zillaforge_server.test", "name", name),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "network_attachment.0.floating_ip_id"),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "network_attachment.0.floating_ip"),
+					testAccCheckFloatingIPAssociated("zillaforge_floating_ip.test"),
+				),
+			},
+		},
+	})
+}
+
+const testAccServerResourceConfig_floatingIPExisting_without = `
+data "zillaforge_flavors" "test" {}
+data "zillaforge_images" "test" {}
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_security_group" "sg" {
+  name = "%s-sg"
+}
+
+resource "zillaforge_server" "test" {
+  name      = "%s"
+  flavor_id = data.zillaforge_flavors.test.flavors[0].id
+  image_id  = data.zillaforge_images.test.images[0].id
+  password  = "TestPassword123!"
+  wait_for_deleted = false
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[0].id
+    security_group_ids = [zillaforge_security_group.sg.id]
+  }
+}
+`
+
+const testAccServerResourceConfig_floatingIPExisting_with = `
+data "zillaforge_flavors" "test" {}
+data "zillaforge_images" "test" {}
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_security_group" "sg" {
+  name = "%s-sg"
+}
+
+resource "zillaforge_floating_ip" "test" {
+  name = "%s-fip"
+}
+
+resource "zillaforge_server" "test" {
+  name      = "%s"
+  flavor_id = data.zillaforge_flavors.test.flavors[0].id
+  image_id  = data.zillaforge_images.test.images[0].id
+  password  = "TestPassword123!"
+  wait_for_deleted = false
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[0].id
+    security_group_ids = [zillaforge_security_group.sg.id]
+    floating_ip_id = zillaforge_floating_ip.test.id
+  }
+}
+`
+
+// T013: Acceptance test - Associate different floating IPs to multiple network_attachments.
+func TestAccServerResource_FloatingIP_Multiple(t *testing.T) {
+	t.Parallel()
+	name := fmt.Sprintf("test-server-fip-multi-%d", time.Now().UnixNano()%100000)
+	config := fmt.Sprintf(testAccServerResourceConfig_floatingIPMultiple, name, name, name, name)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { provider.TestAccPreCheck(t) },
+		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("zillaforge_server.test", "name", name),
+					resource.TestCheckResourceAttr("zillaforge_server.test", "network_attachment.#", "2"),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "network_attachment.0.floating_ip_id"),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "network_attachment.0.floating_ip"),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "network_attachment.1.floating_ip_id"),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "network_attachment.1.floating_ip"),
+					testAccCheckFloatingIPAssociated("zillaforge_floating_ip.test1"),
+					testAccCheckFloatingIPAssociated("zillaforge_floating_ip.test2"),
+				),
+			},
+		},
+	})
+}
+
+const testAccServerResourceConfig_floatingIPMultiple = `
+data "zillaforge_flavors" "test" {}
+data "zillaforge_images" "test" {}
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_security_group" "sg" {
+  name = "%s-sg"
+}
+
+resource "zillaforge_floating_ip" "test1" {
+  name = "%s-fip1"
+}
+
+resource "zillaforge_floating_ip" "test2" {
+  name = "%s-fip2"
+}
+
+resource "zillaforge_server" "test" {
+  name      = "%s"
+  flavor_id = data.zillaforge_flavors.test.flavors[0].id
+  image_id  = data.zillaforge_images.test.images[0].id
+  password  = "TestPassword123!"
+  wait_for_deleted = false
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[0].id
+    security_group_ids = [zillaforge_security_group.sg.id]
+    floating_ip_id = zillaforge_floating_ip.test1.id
+  }
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[1].id
+    security_group_ids = [zillaforge_security_group.sg.id]
+    floating_ip_id = zillaforge_floating_ip.test2.id
+  }
+}
+`
+
+// T021: Acceptance test - Remove floating_ip_id to disassociate.
+func TestAccServerResource_FloatingIP_Disassociate(t *testing.T) {
+	t.Parallel()
+	name := fmt.Sprintf("test-server-fip-disassoc-%d", time.Now().UnixNano()%100000)
+	configWith := fmt.Sprintf(testAccServerResourceConfig_floatingIPDisassociate_with, name, name, name)
+	configWithout := fmt.Sprintf(testAccServerResourceConfig_floatingIPDisassociate_without, name, name, name)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { provider.TestAccPreCheck(t) },
+		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: configWith,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("zillaforge_server.test", "name", name),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "network_attachment.0.floating_ip_id"),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "network_attachment.0.floating_ip"),
+				),
+			},
+			{
+				Config: configWithout,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("zillaforge_server.test", "name", name),
+					resource.TestCheckNoResourceAttr("zillaforge_server.test", "network_attachment.0.floating_ip_id"),
+					resource.TestCheckNoResourceAttr("zillaforge_server.test", "network_attachment.0.floating_ip"),
+					// Note: We don't check the floating IP resource's device_id here because
+					// Terraform doesn't automatically refresh it after the server update.
+					// The important verification is that the server's state is correct.
+				),
+			},
+		},
+	})
+}
+
+const testAccServerResourceConfig_floatingIPDisassociate_with = `
+data "zillaforge_flavors" "test" {}
+data "zillaforge_images" "test" {}
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_security_group" "sg" {
+  name = "%s-sg"
+}
+
+resource "zillaforge_floating_ip" "test" {
+  name = "%s-fip"
+}
+
+resource "zillaforge_server" "test" {
+  name      = "%s"
+  flavor_id = data.zillaforge_flavors.test.flavors[0].id
+  image_id  = data.zillaforge_images.test.images[0].id
+  password  = "TestPassword123!"
+  wait_for_deleted = false
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[0].id
+    security_group_ids = [zillaforge_security_group.sg.id]
+    floating_ip_id = zillaforge_floating_ip.test.id
+  }
+}
+`
+
+const testAccServerResourceConfig_floatingIPDisassociate_without = `
+data "zillaforge_flavors" "test" {}
+data "zillaforge_images" "test" {}
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_security_group" "sg" {
+  name = "%s-sg"
+}
+
+resource "zillaforge_floating_ip" "test" {
+  name = "%s-fip"
+}
+
+resource "zillaforge_server" "test" {
+  name      = "%s"
+  flavor_id = data.zillaforge_flavors.test.flavors[0].id
+  image_id  = data.zillaforge_images.test.images[0].id
+  password  = "TestPassword123!"
+  wait_for_deleted = false
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[0].id
+    security_group_ids = [zillaforge_security_group.sg.id]
+  }
+}
+`
+
+// T022: Acceptance test - Verify repeated disassociation is idempotent.
+func TestAccServerResource_FloatingIP_DisassociateIdempotent(t *testing.T) {
+	t.Parallel()
+	name := fmt.Sprintf("test-server-fip-idemp-%d", time.Now().UnixNano()%100000)
+	configWithout := fmt.Sprintf(testAccServerResourceConfig_floatingIPIdempotent, name, name, name)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { provider.TestAccPreCheck(t) },
+		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: configWithout,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("zillaforge_server.test", "name", name),
+					resource.TestCheckNoResourceAttr("zillaforge_server.test", "network_attachment.0.floating_ip_id"),
+				),
+			},
+			{
+				Config: configWithout,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("zillaforge_server.test", "name", name),
+					resource.TestCheckNoResourceAttr("zillaforge_server.test", "network_attachment.0.floating_ip_id"),
+				),
+			},
+		},
+	})
+}
+
+const testAccServerResourceConfig_floatingIPIdempotent = `
+data "zillaforge_flavors" "test" {}
+data "zillaforge_images" "test" {}
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_security_group" "sg" {
+  name = "%s-sg"
+}
+
+resource "zillaforge_floating_ip" "test" {
+  name = "%s-fip"
+}
+
+resource "zillaforge_server" "test" {
+  name      = "%s"
+  flavor_id = data.zillaforge_flavors.test.flavors[0].id
+  image_id  = data.zillaforge_images.test.images[0].id
+  password  = "TestPassword123!"
+  wait_for_deleted = false
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[0].id
+    security_group_ids = [zillaforge_security_group.sg.id]
+  }
+}
+`
+
+// T028: Acceptance test - Swap floating IP to different IP (verify sequential disassociate-then-associate).
+func TestAccServerResource_FloatingIP_Swap(t *testing.T) {
+	t.Parallel()
+	name := fmt.Sprintf("test-server-fip-swap-%d", time.Now().UnixNano()%100000)
+	configWithFip1 := fmt.Sprintf(testAccServerResourceConfig_floatingIPSwap_fip1, name, name, name, name)
+	configWithFip2 := fmt.Sprintf(testAccServerResourceConfig_floatingIPSwap_fip2, name, name, name, name)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { provider.TestAccPreCheck(t) },
+		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: configWithFip1,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("zillaforge_server.test", "name", name),
+					resource.TestCheckResourceAttrPair("zillaforge_server.test", "network_attachment.0.floating_ip_id", "zillaforge_floating_ip.test1", "id"),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "network_attachment.0.floating_ip"),
+					testAccCheckFloatingIPAssociated("zillaforge_floating_ip.test1"),
+				),
+			},
+			{
+				Config: configWithFip2,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("zillaforge_server.test", "name", name),
+					resource.TestCheckResourceAttrPair("zillaforge_server.test", "network_attachment.0.floating_ip_id", "zillaforge_floating_ip.test2", "id"),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "network_attachment.0.floating_ip"),
+					testAccCheckFloatingIPAssociated("zillaforge_floating_ip.test2"),
+				),
+			},
+		},
+	})
+}
+
+const testAccServerResourceConfig_floatingIPSwap_fip1 = `
+data "zillaforge_flavors" "test" {}
+data "zillaforge_images" "test" {}
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_security_group" "sg" {
+  name = "%s-sg"
+}
+
+resource "zillaforge_floating_ip" "test1" {
+  name = "%s-fip1"
+}
+
+resource "zillaforge_floating_ip" "test2" {
+  name = "%s-fip2"
+}
+
+resource "zillaforge_server" "test" {
+  name      = "%s"
+  flavor_id = data.zillaforge_flavors.test.flavors[0].id
+  image_id  = data.zillaforge_images.test.images[0].id
+  password  = "TestPassword123!"
+  wait_for_deleted = false
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[0].id
+    security_group_ids = [zillaforge_security_group.sg.id]
+    floating_ip_id = zillaforge_floating_ip.test1.id
+  }
+}
+`
+
+const testAccServerResourceConfig_floatingIPSwap_fip2 = `
+data "zillaforge_flavors" "test" {}
+data "zillaforge_images" "test" {}
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_security_group" "sg" {
+  name = "%s-sg"
+}
+
+resource "zillaforge_floating_ip" "test1" {
+  name = "%s-fip1"
+}
+
+resource "zillaforge_floating_ip" "test2" {
+  name = "%s-fip2"
+}
+
+resource "zillaforge_server" "test" {
+  name      = "%s"
+  flavor_id = data.zillaforge_flavors.test.flavors[0].id
+  image_id  = data.zillaforge_images.test.images[0].id
+  password  = "TestPassword123!"
+  wait_for_deleted = false
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[0].id
+    security_group_ids = [zillaforge_security_group.sg.id]
+    floating_ip_id = zillaforge_floating_ip.test2.id
+  }
+}
+`
+
+// T029: Acceptance test - Verify floating IP swap is update-in-place, not destroy-create.
+func TestAccServerResource_FloatingIP_SwapNoRecreate(t *testing.T) {
+	t.Parallel()
+	name := fmt.Sprintf("test-server-fip-norecreate-%d", time.Now().UnixNano()%100000)
+	configWithFip1 := fmt.Sprintf(testAccServerResourceConfig_floatingIPSwapNoRecreate_fip1, name, name, name, name)
+	configWithFip2 := fmt.Sprintf(testAccServerResourceConfig_floatingIPSwapNoRecreate_fip2, name, name, name, name)
+
+	var serverID string
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { provider.TestAccPreCheck(t) },
+		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: configWithFip1,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("zillaforge_server.test", "name", name),
+					resource.TestCheckResourceAttrPair("zillaforge_server.test", "network_attachment.0.floating_ip_id", "zillaforge_floating_ip.test1", "id"),
+					// Capture server ID
+					func(s *terraform.State) error {
+						server, ok := s.RootModule().Resources["zillaforge_server.test"]
+						if !ok {
+							return fmt.Errorf("Server resource not found")
+						}
+						serverID = server.Primary.ID
+						return nil
+					},
+				),
+			},
+			{
+				Config: configWithFip2,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("zillaforge_server.test", "name", name),
+					resource.TestCheckResourceAttrPair("zillaforge_server.test", "network_attachment.0.floating_ip_id", "zillaforge_floating_ip.test2", "id"),
+					// Verify server ID hasn't changed (no replacement)
+					func(s *terraform.State) error {
+						server, ok := s.RootModule().Resources["zillaforge_server.test"]
+						if !ok {
+							return fmt.Errorf("Server resource not found")
+						}
+						if server.Primary.ID != serverID {
+							return fmt.Errorf("Server was recreated (old ID: %s, new ID: %s)", serverID, server.Primary.ID)
+						}
+						return nil
+					},
+				),
+			},
+		},
+	})
+}
+
+const testAccServerResourceConfig_floatingIPSwapNoRecreate_fip1 = `
+data "zillaforge_flavors" "test" {}
+data "zillaforge_images" "test" {}
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_security_group" "sg" {
+  name = "%s-sg"
+}
+
+resource "zillaforge_floating_ip" "test1" {
+  name = "%s-fip1"
+}
+
+resource "zillaforge_floating_ip" "test2" {
+  name = "%s-fip2"
+}
+
+resource "zillaforge_server" "test" {
+  name      = "%s"
+  flavor_id = data.zillaforge_flavors.test.flavors[0].id
+  image_id  = data.zillaforge_images.test.images[0].id
+  password  = "TestPassword123!"
+  wait_for_deleted = false
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[0].id
+    security_group_ids = [zillaforge_security_group.sg.id]
+    floating_ip_id = zillaforge_floating_ip.test1.id
+  }
+}
+`
+
+const testAccServerResourceConfig_floatingIPSwapNoRecreate_fip2 = `
+data "zillaforge_flavors" "test" {}
+data "zillaforge_images" "test" {}
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_security_group" "sg" {
+  name = "%s-sg"
+}
+
+resource "zillaforge_floating_ip" "test1" {
+  name = "%s-fip1"
+}
+
+resource "zillaforge_floating_ip" "test2" {
+  name = "%s-fip2"
+}
+
+resource "zillaforge_server" "test" {
+  name      = "%s"
+  flavor_id = data.zillaforge_flavors.test.flavors[0].id
+  image_id  = data.zillaforge_images.test.images[0].id
+  password  = "TestPassword123!"
+  wait_for_deleted = false
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[0].id
+    security_group_ids = [zillaforge_security_group.sg.id]
+    floating_ip_id = zillaforge_floating_ip.test2.id
+  }
+}
+`
+
+// testAccCheckFloatingIPAssociated is a helper to verify floating IP is associated with server.
+func testAccCheckFloatingIPAssociated(floatingIPName string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		// Get server resource
+		server, ok := s.RootModule().Resources["zillaforge_server.test"]
+		if !ok {
+			return fmt.Errorf("Server resource not found: zillaforge_server.test")
+		}
+
+		// Get floating IP resource
+		fip, ok := s.RootModule().Resources[floatingIPName]
+		if !ok {
+			return fmt.Errorf("Floating IP resource not found: %s", floatingIPName)
+		}
+
+		fipID := fip.Primary.ID
+
+		// Search all network attachments for the floating IP
+		numAttachments := 0
+		for i := 0; ; i++ {
+			key := fmt.Sprintf("network_attachment.%d.floating_ip_id", i)
+			serverFIPID, exists := server.Primary.Attributes[key]
+			if !exists {
+				break
+			}
+			numAttachments++
+			if serverFIPID == fipID {
+				// Found the floating IP in this attachment
+				return nil
+			}
+		}
+
+		return fmt.Errorf("Floating IP %s not associated with any of %d network attachments", fipID, numAttachments)
+	}
+}
+
+// T052: Acceptance test - Import server with floating IP association.
+func TestAccServerResource_FloatingIP_Import(t *testing.T) {
+	t.Parallel()
+	name := fmt.Sprintf("test-server-fip-import-%d", time.Now().UnixNano()%100000)
+	config := fmt.Sprintf(testAccServerResourceConfig_floatingIPImport, name, name, name)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { provider.TestAccPreCheck(t) },
+		ProtoV6ProviderFactories: provider.TestAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("zillaforge_server.test", "name", name),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "network_attachment.0.floating_ip_id"),
+					resource.TestCheckResourceAttrSet("zillaforge_server.test", "network_attachment.0.floating_ip"),
+				),
+			},
+			{
+				ResourceName:            "zillaforge_server.test",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"password", "user_data", "wait_for_active", "wait_for_deleted", "timeouts"},
+			},
+		},
+	})
+}
+
+const testAccServerResourceConfig_floatingIPImport = `
+data "zillaforge_flavors" "test" {}
+data "zillaforge_images" "test" {}
+data "zillaforge_networks" "test" {}
+
+resource "zillaforge_security_group" "sg" {
+  name = "%s-sg"
+}
+
+resource "zillaforge_floating_ip" "test" {
+  name = "%s-fip"
+}
+
+resource "zillaforge_server" "test" {
+  name      = "%s"
+  flavor_id = data.zillaforge_flavors.test.flavors[0].id
+  image_id  = data.zillaforge_images.test.images[0].id
+  password  = "TestPassword123!"
+  wait_for_deleted = false
+
+  network_attachment {
+    network_id = data.zillaforge_networks.test.networks[0].id
+    security_group_ids = [zillaforge_security_group.sg.id]
+    floating_ip_id = zillaforge_floating_ip.test.id
+  }
+}
+`

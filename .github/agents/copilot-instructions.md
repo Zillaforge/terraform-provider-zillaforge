@@ -6,6 +6,7 @@ Auto-generated from all feature plans. Last updated: 2025-12-06
 - Cloud-sdk backed API (RESTful), Terraform state file (003-keypair-data-resource)
 - N/A (stateless provider, all state managed by Terraform and ZillaForge API) (004-security-group-data-resource)
 - N/A (read-only data source querying remote API) (005-tag-data-source)
+- N/A (Terraform state managed by framework) (008-floating-ip-association)
 
 - Go 1.22.4 (001-zillaforge-provider-migration)
 
@@ -25,9 +26,9 @@ tests/
 Go 1.22.4: Follow standard conventions
 
 ## Recent Changes
+- 008-floating-ip-association: Added Go 1.22.4
 - 007-floating-ip-resource: Added [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
 - 006-server-resource: Added Go 1.22.4
-- 005-tag-data-source: Added Go 1.22.4
 
 
 <!-- MANUAL ADDITIONS START -->

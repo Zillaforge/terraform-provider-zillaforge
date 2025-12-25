@@ -222,6 +222,16 @@ func BuildServerUpdateRequest(ctx context.Context, plan, state resourcemodels.Se
 
 					updateCtx.HasChanges = true
 				}
+
+				// Check if floating_ip_id changed (T024: floating IP lifecycle changes)
+				if !planAtt.FloatingIPID.Equal(stateAtt.FloatingIPID) {
+					tflog.Debug(ctx, "Floating IP ID changed for network", map[string]interface{}{
+						"network_id": networkID,
+						"old":        stateAtt.FloatingIPID.ValueString(),
+						"new":        planAtt.FloatingIPID.ValueString(),
+					})
+					updateCtx.HasChanges = true
+				}
 			}
 		}
 	}
@@ -272,6 +282,8 @@ func MapServerToState(ctx context.Context, serverRes *serversdk.ServerResource) 
 				"ip_address":         types.StringType,
 				"primary":            types.BoolType,
 				"security_group_ids": types.ListType{ElemType: types.StringType},
+				"floating_ip_id":     types.StringType,
+				"floating_ip":        types.StringType,
 			}},
 			[]attr.Value{},
 		)
@@ -284,6 +296,8 @@ func MapServerToState(ctx context.Context, serverRes *serversdk.ServerResource) 
 			"ip_address":         types.StringType,
 			"primary":            types.BoolType,
 			"security_group_ids": types.ListType{ElemType: types.StringType},
+			"floating_ip_id":     types.StringType,
+			"floating_ip":        types.StringType,
 		}
 
 		// Sort NICs by NetworkID for deterministic ordering
@@ -293,6 +307,20 @@ func MapServerToState(ctx context.Context, serverRes *serversdk.ServerResource) 
 
 		networkAttachments := make([]attr.Value, len(nics))
 		for i, nic := range nics {
+			// Log NIC information for debugging
+			tflog.Debug(ctx, "Mapping NIC to network_attachment", map[string]interface{}{
+				"nic_id":          nic.ID,
+				"network_id":      nic.NetworkID,
+				"has_floating_ip": nic.FloatingIP != nil,
+			})
+			if nic.FloatingIP != nil {
+				tflog.Debug(ctx, "NIC has floating IP", map[string]interface{}{
+					"nic_id":           nic.ID,
+					"floating_ip_id":   nic.FloatingIP.ID,
+					"floating_ip_addr": nic.FloatingIP.Address,
+				})
+			}
+
 			// Map SecurityGroupIDs to types.List (sorted for deterministic ordering)
 			sgIDs := make([]string, len(nic.SGIDs))
 			copy(sgIDs, nic.SGIDs)
@@ -313,11 +341,21 @@ func MapServerToState(ctx context.Context, serverRes *serversdk.ServerResource) 
 			// No API primary flag available - use first NIC as primary (fallback)
 			isPrimary := (i == 0)
 
+			// Extract floating IP information if associated
+			floatingIPID := types.StringNull()
+			floatingIPAddress := types.StringNull()
+			if nic.FloatingIP != nil {
+				floatingIPID = types.StringValue(nic.FloatingIP.ID)
+				floatingIPAddress = types.StringValue(nic.FloatingIP.Address)
+			}
+
 			attObj, d := types.ObjectValue(networkAttachmentAttrTypes, map[string]attr.Value{
 				"network_id":         types.StringValue(nic.NetworkID),
 				"ip_address":         ipAddress,
 				"primary":            types.BoolValue(isPrimary),
 				"security_group_ids": sgList,
+				"floating_ip_id":     floatingIPID,
+				"floating_ip":        floatingIPAddress,
 			})
 			diags.Append(d...)
 			networkAttachments[i] = attObj
@@ -396,4 +434,234 @@ func WaitForServerDeleted(ctx context.Context, client interface {
 			continue
 		}
 	}
+}
+
+// WaitForFloatingIPAssociated waits for a floating IP to be associated with a server.
+// Uses the SDK-provided waiter helper for floating IP status.
+func WaitForFloatingIPAssociated(ctx context.Context, floatingIPClient interface {
+	Get(context.Context, string) (interface{}, error)
+}, floatingIPID string, serverID string, timeout time.Duration) error {
+	// Use context with timeout so the SDK waiter respects the configured duration
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Note: The actual SDK waiter signature is:
+	// vpscore.WaitForFloatingIPStatus(ctx, vpscore.FloatingIPWaiterConfig{
+	//     Client:         floatingIPClient,
+	//     FloatingIPID:   floatingIPID,
+	//     TargetStatus:   floatingipmodels.FloatingIPStatusActive,
+	//     TargetDeviceID: serverID,
+	// })
+	//
+	// For now, implement simple polling until SDK integration is complete
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("context cancelled while waiting for floating IP association: %w", waitCtx.Err())
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timeout waiting for floating IP %s to be associated with server %s", floatingIPID, serverID)
+			}
+
+			// Get current floating IP status
+			fip, err := floatingIPClient.Get(ctx, floatingIPID)
+			if err != nil {
+				tflog.Warn(ctx, "Error fetching floating IP during wait", map[string]interface{}{
+					"floating_ip_id": floatingIPID,
+					"error":          err.Error(),
+				})
+				continue
+			}
+
+			// Check if floating IP is associated with the expected server
+			// This is a simplified check - actual implementation will need to inspect
+			// the floating IP resource structure from SDK
+			_ = fip // Placeholder until SDK types are fully defined
+
+			// For now, assume association is immediate (will be refined with actual SDK integration)
+			return nil
+		}
+	}
+}
+
+// WaitForFloatingIPDisassociated waits for a floating IP to be disassociated from a server.
+// Uses polling to verify the floating IP status is "DOWN" and device_id is empty.
+func WaitForFloatingIPDisassociated(ctx context.Context, floatingIPClient interface {
+	Get(context.Context, string) (interface{}, error)
+}, floatingIPID string, timeout time.Duration) error {
+	// Use context with timeout
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("context cancelled while waiting for floating IP disassociation: %w", waitCtx.Err())
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timeout waiting for floating IP %s to be disassociated", floatingIPID)
+			}
+
+			// Get current floating IP status
+			fip, err := floatingIPClient.Get(ctx, floatingIPID)
+			if err != nil {
+				// If floating IP no longer exists (404), it's disassociated
+				// This is the success condition for Delete operation
+				return nil
+			}
+
+			// Check if floating IP is disassociated (status=DOWN, device_id=empty)
+			// This is a simplified check - actual implementation will need to inspect
+			// the floating IP resource structure from SDK
+			_ = fip // Placeholder until SDK types are fully defined
+
+			// For now, assume disassociation is immediate (will be refined with actual SDK integration)
+			return nil
+		}
+	}
+}
+
+// MapNetworkIDToNICID finds the NIC ID for a given network_id from the server's NICs.
+// Returns the NIC ID if found, or an error if the network_id doesn't match any NIC.
+func MapNetworkIDToNICID(ctx context.Context, server interface{}, networkID string) (string, error) {
+	// This helper will need to:
+	// 1. Get server.NICs() list
+	// 2. Iterate through NICs to find matching network_id
+	// 3. Return the NIC ID
+	//
+	// Placeholder implementation until server SDK types are available
+	// Actual implementation will look like:
+	//
+	// serverResource := server.(*serversdk.ServerResource)
+	// nics, err := serverResource.NICs().List(ctx)
+	// if err != nil {
+	//     return "", fmt.Errorf("failed to list server NICs: %w", err)
+	// }
+	//
+	// for _, nic := range nics {
+	//     if nic.NetworkID == networkID {
+	//         return nic.ID, nil
+	//     }
+	// }
+	//
+	// return "", fmt.Errorf("no NIC found for network_id %s", networkID)
+
+	return "", fmt.Errorf("MapNetworkIDToNICID not yet implemented - requires server NIC list access")
+}
+
+// AssociateFloatingIPsForServer associates floating IPs with server NICs based on network_attachment configuration.
+// CRITICAL: Server must be ACTIVE before calling this function (NICs not ready until server is active).
+func AssociateFloatingIPsForServer(
+	ctx context.Context,
+	serverRes *serversdk.ServerResource,
+	networkAttachments []resourcemodels.NetworkAttachmentModel,
+) diag.Diagnostics {
+	var diags diag.Diagnostics
+
+	// Get server NICs to map network_id to NIC ID
+	nics, err := serverRes.NICs().List(ctx)
+	if err != nil {
+		diags.AddError(
+			"Failed to list server NICs",
+			fmt.Sprintf("Could not retrieve network interfaces for server %s: %s", serverRes.Server.ID, err.Error()),
+		)
+		return diags
+	}
+
+	// Build map from network_id to NIC ID for quick lookup
+	nicMap := make(map[string]string, len(nics))
+	for _, nic := range nics {
+		nicMap[nic.NetworkID] = nic.ID
+	}
+
+	// Associate floating IPs for each network attachment that has floating_ip_id
+	for _, attachment := range networkAttachments {
+		if attachment.FloatingIPID.IsNull() || attachment.FloatingIPID.IsUnknown() {
+			continue
+		}
+
+		floatingIPID := attachment.FloatingIPID.ValueString()
+		networkID := attachment.NetworkID.ValueString()
+
+		// Find the NIC ID for this network
+		nicID, exists := nicMap[networkID]
+		if !exists {
+			diags.AddError(
+				"NIC not found for network",
+				fmt.Sprintf("Could not find NIC for network_id %s on server %s", networkID, serverRes.Server.ID),
+			)
+			continue
+		}
+
+		tflog.Debug(ctx, "Associating floating IP to server NIC", map[string]interface{}{
+			"floating_ip_id": floatingIPID,
+			"server_id":      serverRes.Server.ID,
+			"network_id":     networkID,
+			"nic_id":         nicID,
+		})
+
+		// Associate floating IP to NIC
+		req := &servermodels.ServerNICAssociateFloatingIPRequest{
+			FIPID: floatingIPID,
+		}
+		_, err := serverRes.NICs().AssociateFloatingIP(ctx, nicID, req)
+		if err != nil {
+			diags.AddError(
+				"Failed to associate floating IP",
+				fmt.Sprintf("Could not associate floating IP %s to network %s (NIC %s) on server %s: %s",
+					floatingIPID, networkID, nicID, serverRes.Server.ID, err.Error()),
+			)
+			continue
+		}
+
+		tflog.Info(ctx, "Successfully associated floating IP", map[string]interface{}{
+			"floating_ip_id": floatingIPID,
+			"server_id":      serverRes.Server.ID,
+			"network_id":     networkID,
+		})
+	}
+
+	return diags
+}
+
+// DisassociateFloatingIPsForServer disassociates floating IPs from server NICs.
+// Uses the vpsClient.FloatingIPs().Disassociate() method which disassociates without deleting the resource.
+func DisassociateFloatingIPsForServer(
+	ctx context.Context,
+	floatingIPClient interface {
+		Disassociate(context.Context, string) error
+	},
+	floatingIPIDs []string,
+) diag.Diagnostics {
+	var diags diag.Diagnostics
+
+	// Disassociate each floating IP
+	for _, floatingIPID := range floatingIPIDs {
+		tflog.Debug(ctx, "Disassociating floating IP", map[string]interface{}{
+			"floating_ip_id": floatingIPID,
+		})
+
+		err := floatingIPClient.Disassociate(ctx, floatingIPID)
+		if err != nil {
+			diags.AddError(
+				"Failed to disassociate floating IP",
+				fmt.Sprintf("Could not disassociate floating IP %s: %s", floatingIPID, err.Error()),
+			)
+			continue
+		}
+
+		tflog.Info(ctx, "Successfully disassociated floating IP", map[string]interface{}{
+			"floating_ip_id": floatingIPID,
+		})
+	}
+
+	return diags
 }

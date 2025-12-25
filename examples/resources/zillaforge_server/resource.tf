@@ -167,7 +167,70 @@ output "database_server_ips" {
 }
 
 // ---------------------------------------------------------------------------
-// Example 4: Asynchronous server creation
+// Example 4: Server with Floating IP association
+// Demonstrates associating a `floating_ip` to a network attachment using
+// the `floating_ip_id` attribute. The `floating_ip` (read-only) shows the
+// public address once associated.
+// ---------------------------------------------------------------------------
+
+resource "zillaforge_floating_ip" "example" {
+  name = "example-fip"
+}
+
+resource "zillaforge_server" "web_with_fip" {
+  name      = "web-with-fip"
+  flavor_id = data.zillaforge_flavors.available.flavors[0].id
+  image_id  = data.zillaforge_images.ubuntu.images[0].id
+  password  = "ChangeMe123!"
+
+  network_attachment {
+    network_id         = data.zillaforge_networks.default.networks[0].id
+    primary            = true
+    security_group_ids = [data.zillaforge_security_groups.default.security_groups[0].id]
+    floating_ip_id     = zillaforge_floating_ip.example.id
+  }
+}
+
+output "web_with_fip_id" {
+  value = zillaforge_server.web_with_fip.id
+}
+
+output "web_with_fip_address" {
+  value = zillaforge_server.web_with_fip.network_attachment[0].floating_ip
+}
+
+// ---------------------------------------------------------------------------
+// Example 5: Floating IP swap (in-place update)
+// Demonstrates swapping a floating IP by changing `floating_ip_id` from one
+// floating IP to another — the provider will disassociate the old IP then
+// associate the new IP without recreating the server.
+// ---------------------------------------------------------------------------
+
+resource "zillaforge_floating_ip" "swap_one" { name = "swap-fip-1" }
+resource "zillaforge_floating_ip" "swap_two" { name = "swap-fip-2" }
+
+resource "zillaforge_server" "swap_server" {
+  name      = "swap-server"
+  flavor_id = data.zillaforge_flavors.available.flavors[0].id
+  image_id  = data.zillaforge_images.ubuntu.images[0].id
+  password  = "ChangeMe123!"
+
+  network_attachment {
+    network_id         = data.zillaforge_networks.default.networks[0].id
+    primary            = true
+    security_group_ids = [data.zillaforge_security_groups.default.security_groups[0].id]
+    floating_ip_id     = zillaforge_floating_ip.swap_one.id
+  }
+}
+
+# To swap: change `floating_ip_id` to `zillaforge_floating_ip.swap_two.id` and run `terraform apply`
+
+output "swap_server_floating_ip" {
+  value = zillaforge_server.swap_server.network_attachment[0].floating_ip
+}
+
+// ---------------------------------------------------------------------------
+// Example 6: Asynchronous server creation
 // Demonstrates `wait_for_active = false` for batch deployments
 // ---------------------------------------------------------------------------
 
