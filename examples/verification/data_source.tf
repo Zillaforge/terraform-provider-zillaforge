@@ -1,24 +1,24 @@
-data "zillaforge_flavors" "default" {
-  name = "default"
+data "zillaforge_flavors" "small_falvor" {
+  vcpus  = 1
+  memory = 1
+}
+
+output "flavor_id" {
+  value = data.zillaforge_flavors.small_falvor.flavors[0].id
 }
 
 data "zillaforge_networks" "default" {
   name = "default"
 }
 
-data "zillaforge_keypairs" "generated" {
-  name = resource.zillaforge_keypair.auto_generated.name
-}
-
-output "default_flavor_id" {
-  value = data.zillaforge_flavors.default.flavors[0].id
-}
-
-output "default_network_id" {
+output "network_id" {
   value = data.zillaforge_networks.default.networks[0].id
 }
 
-output "keypair_names_id" {
-  description = "generated keypair names"
-  value       = data.zillaforge_keypairs.generated.keypairs[0].id
+data "zillaforge_images" "cirros" {
+  repository = "cirros"
+}
+
+output "image_id" {
+  value = data.zillaforge_images.cirros.images[0].id
 }
