@@ -1,7 +1,8 @@
 terraform {
   required_providers {
     zillaforge = {
-      source = "registry.terraform.io/Zillaforge/zillaforge"
+      source  = "hashicorp/zillaforge"
+      version = "0.0.1-alpha"
     }
   }
 }

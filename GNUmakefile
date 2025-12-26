@@ -40,6 +40,9 @@ coverage: testacc
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
+PROVIDER_VERSION ?= $(shell test -f VERSION && cat VERSION || echo 0.0.0)
+image:
+	docker build --build-arg PROVIDER_VERSION=${PROVIDER_VERSION} -t Zillaforge/terraform:${PROVIDER_VERSION} .
 
 verification_plan:
 	terraform -chdir=./examples/verification plan
